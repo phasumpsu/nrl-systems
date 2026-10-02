@@ -1,0 +1,33 @@
+VERSION ""
+
+NS_ :
+    BA_
+    BA_SGTYPE_
+    BO_
+    BU_
+    VAL_
+    SG_
+    SGTYPE_
+    CM_
+
+
+BU_ : ToEngine ToGround 
+
+BO_ 256 EngineSignal: 24 ToEngine
+    SG_ EngineThrust : 0|16@1+ (0.1,0) [0|1000.0] "N" ToGround
+    SG_ NitrousWeight : 16|8@1+ (1,0) [0|250] "lbs" ToGround
+    SG_ RunTankPressure : 24|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
+    SG_ CCPressure : 40|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
+    SG_ TopCCTemp : 56|16@1+ (0.1,0) [0|1300.0] "C" ToGround
+    SG_ BotCCTemp : 72|16@1+ (0.1,0) [0|1300.0] "C" ToGround
+    SG_ ReservedEngine : 88|104@1+ (1,0) [0|1] "" ToGround
+
+BO_ 512 GroundStationSignal: 16 ToGround
+    SG_ GroundSV11 : 0|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ RunTankSV12 : 4|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ GaugeSV13 : 8|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ FireInjector : 12|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ Reserved : 16|112@1+ (1,0) [0|1] "" ToEngine
+
+CM_ BO_ 256 "The data that's coming from the engine into the ground station";
+CM_ BO_ 512 "The signal that's coming from ground station and going to the engine";

@@ -1,10 +1,16 @@
 # nrl-systems
 
-Data acquisition target: **19th/20th** (can push a week)
+Data acquisition target: **October 18th** (hard date.)
 
 System: STM32H723ZG (MCU) --CAN FD--> RPi4 (relay + logger) --wireless--> Laptop (ground station/GUI)
 
 ---
+
+## GUI
+- [ ] fix the GUI so that it uses actual data
+- [ ] change the output graphs so that it shows the correct data
+- [ ] each of the sensors (Load cells, transducers, thermocouples) are going to have 2 lines in their graphs; one for the run tank, the other for the combustion chamber. 
+
 
 ## Shared Resources
 - [ ] .dbc file (+ checksum/CRC)
