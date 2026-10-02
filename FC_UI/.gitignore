@@ -1,0 +1,7 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Generated at runtime by the map widget
+groundstation/widgets/map.html

@@ -1,0 +1,18 @@
+# NRL Ground Station 2.0
+
+# --- core UI --------------------------------------------------------
+PyQt6>=6.6
+pyqtgraph>=0.13.3
+numpy>=1.24
+
+# --- 3D attitude indicator (pyqtgraph.opengl backend) ---------------
+PyOpenGL>=3.1.7
+PyOpenGL-accelerate>=3.1.7
+
+# --- live Leaflet map (QWebEngineView) ------------------------------
+# Without this the map degrades to an offline pyqtgraph ground track.
+PyQt6-WebEngine>=6.6
+
+# --- serial / radio link --------------------------------------------
+# Only needed for --source serial.
+pyserial>=3.5
