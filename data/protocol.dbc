@@ -20,7 +20,8 @@ BO_ 256 EngineSignal: 24 ToEngine
     SG_ CCPressure : 40|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
     SG_ TopCCTemp : 56|16@1+ (0.1,0) [0|1300.0] "C" ToGround
     SG_ BotCCTemp : 72|16@1+ (0.1,0) [0|1300.0] "C" ToGround
-    SG_ ReservedEngine : 88|104@1+ (1,0) [0|1] "" ToGround
+    SG_ MCUTimer : 88|16@1+ (1,0) [0|65535] "s" ToGround
+    SG_ ReservedEngine : 104|88@1+ (1,0) [0|1] "" ToGround
 
 BO_ 512 GroundStationSignal: 16 ToGround
     SG_ GroundSV11 : 0|4@1+ (1,0) [0|1] "" ToEngine

@@ -10,6 +10,7 @@ System: STM32H723ZG (MCU) --CAN FD--> RPi4 (relay + logger) --wireless--> Laptop
 - [ ] fix the GUI so that it uses actual data
 - [ ] change the output graphs so that it shows the correct data
 - [ ] each of the sensors (Load cells, transducers, thermocouples) are going to have 2 lines in their graphs; one for the run tank, the other for the combustion chamber. 
+Note that the thermocouples are going to have their own graph, but theyre both for the combustion chamber, to verify the reaction status. 
 
 
 ## Shared Resources
@@ -42,8 +43,8 @@ System: STM32H723ZG (MCU) --CAN FD--> RPi4 (relay + logger) --wireless--> Laptop
 
 ## Laptop (ground station)
 - [ ] live checksum/sequence checker on incoming telemetry stream (flags OK / CRC_FAIL / GAP).
-- [ ] dashboard/GUI already made by my vehement goat, caio nishiyama, just needs integration.
-- [ ] command interface: send switch/valve using physical buttons (important!!) (3 solenoid, 1 ignitor).
+- [ ] dashboard/GUI already made by my vehement goat, caio nishiyama, just needs integration (way easier said than done).
+- [ ] command interface: send switch/valve using physical buttons (important!!) (3 solenoids, 1 ignitor).
 - [ ] post-mission bulk transfer script — pull csv from MCU + RPI (rsync/scp).
 - [ ] file-integrity check after transfer before finalization (checksum compare, e.g. sha256).
 
