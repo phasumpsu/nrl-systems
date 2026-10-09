@@ -6,6 +6,7 @@ window. A column to the right of each plot shows the current value of every
 series, updated every redraw -- no hovering required, so the numbers are
 always visible at a glance.
 """
+#engine thrust(N),run tank pressure chamber pressure,top temprature bottom  temp
 
 from __future__ import annotations
 
@@ -276,20 +277,20 @@ class GraphStack(QWidget):
 
         root.addLayout(self._build_toolbar())
 
-        self.altitude = TelemetryPlot(
-            "Altitude", "m",
-            [("Baro AGL", PALETTE.cyan), ("GPS MSL", PALETTE.magenta)],
+        self.engineThrust = TelemetryPlot(
+            "Engine Thrust", "N",
+            [("Thrust", PALETTE.cyan)]#, ("placeholder", PALETTE.magenta)],
         )
-        self.acceleration = TelemetryPlot(
-            "Acceleration", "g",
-            [("|A| high-g", PALETTE.amber), ("Axial Az", PALETTE.green)],
+        self.pressure = TelemetryPlot(
+            "Pressure", "psi",
+            [("Chamber Pressure", PALETTE.amber), ("Run Tank Pressure", PALETTE.green)],
         )
-        self.velocity = TelemetryPlot(
-            "Vertical Velocity", "m/s",
-            [("Kalman", PALETTE.cyan), ("IMU", PALETTE.red)],
+        self.temp = TelemetryPlot(
+            "Temperature", "C",
+            [("Top Temp", PALETTE.red), ("Bottom Temp", PALETTE.cyan)],
         )
 
-        self.plots = (self.altitude, self.acceleration, self.velocity)
+        self.plots = (self.engineThrust, self.pressure, self.temp)
         for plot in self.plots:
             plot.setStyleSheet(
                 f"background-color:{PALETTE.panel}; border:1px solid {PALETTE.border};"
@@ -298,7 +299,7 @@ class GraphStack(QWidget):
 
         # Shared X axis: panning one plot pans them all.
         for plot in self.plots[1:]:
-            plot.plot.setXLink(self.altitude.plot)
+            plot.plot.setXLink(self.engineThrust.plot)
 
     # -----------------------------------------------------------------
     def _build_toolbar(self) -> QHBoxLayout:
