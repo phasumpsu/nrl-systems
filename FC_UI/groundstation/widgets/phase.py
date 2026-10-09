@@ -11,14 +11,14 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFrame, QHBoxLayout, QLabel, QVBoxLayout
 
-from ..telemetry import FlightPhase
+from ..telemetry import EngineFire
 from ..theme import FONT_MONO, PALETTE
 
 
 class _PhaseStep(QLabel):
     """One segment of the phase progression track."""
 
-    def __init__(self, phase: FlightPhase, parent=None):
+    def __init__(self, phase: EngineFire, parent=None):
         super().__init__(phase.label, parent)
         self.phase = phase
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -51,7 +51,7 @@ class PhaseDisplay(QFrame):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._phase = FlightPhase.IDLE
+        self._phase = EngineFire.IDLE
 
         self.setStyleSheet(
             f"background-color:{PALETTE.panel}; border:1px solid {PALETTE.border};"
@@ -67,7 +67,7 @@ class PhaseDisplay(QFrame):
 
         left = QVBoxLayout()
         left.setSpacing(0)
-        cap = QLabel("FLIGHT PHASE")
+        cap = QLabel("ENGINE PHASE")
         cap.setStyleSheet(
             f"color:{PALETTE.text_faint}; font-size:9px; font-weight:700;"
             "letter-spacing:1.6px; border:none;"
@@ -77,7 +77,7 @@ class PhaseDisplay(QFrame):
             f"color:{PALETTE.grey}; font-size:38px; font-weight:800;"
             "letter-spacing:2px; border:none;"
         )
-        self.blurb = QLabel(FlightPhase.IDLE.blurb)
+        self.blurb = QLabel(EngineFire.IDLE.blurb)
         self.blurb.setStyleSheet(
             f"color:{PALETTE.text_dim}; font-size:11px; border:none;"
         )
@@ -120,7 +120,7 @@ class PhaseDisplay(QFrame):
         track = QHBoxLayout()
         track.setSpacing(4)
         self.steps = []
-        for phase in FlightPhase:
+        for phase in EngineFire:
             step = _PhaseStep(phase)
             self.steps.append(step)
             track.addWidget(step)
@@ -129,7 +129,7 @@ class PhaseDisplay(QFrame):
         self._refresh_track()
 
     # -----------------------------------------------------------------
-    def set_phase(self, phase: FlightPhase) -> None:
+    def set_phase(self, phase: EngineFire) -> None:
         if phase == self._phase:
             return
         self._phase = phase
