@@ -9,7 +9,8 @@ Layout is dock-based so the operator can rearrange panels during a launch:
     | ATTITUDE  |  FLIGHT PHASE banner           |  GPS MAP        |
     | (3D)      |--------------------------------|                 |
     |-----------|  ALTITUDE / ACCEL / VELOCITY   |-----------------|
-    | PYRO      |  (crosshair plots)             |  VEHICLE STATUS |
+    | PYRO
+          |  (crosshair plots)             |  VEHICLE STATUS |
     +-----------+--------------------------------+-----------------+
     |  EVENT LOG                                                   |
     +--------------------------------------------------------------+
@@ -47,7 +48,7 @@ from .sources import (
     UdpSource,
     available_serial_ports,
 )
-from .telemetry import FlightPhase, TelemetryFrame
+from .telemetry import EngineFire, TelemetryFrame
 from .theme import FONT_MONO, PALETTE
 from .widgets import (
     AttitudeIndicator,
@@ -80,7 +81,7 @@ class GroundStation(QMainWindow):
         self.source: TelemetrySource | None = None
         self.latest: TelemetryFrame | None = None
         self._pending: list[TelemetryFrame] = []
-        self._last_phase = FlightPhase.IDLE
+        self._last_phase = EngineFire.IDLE
         self._phase_entered_t = 0.0
         self._last_t = 0.0
         self._apogee_marked = False
@@ -89,8 +90,8 @@ class GroundStation(QMainWindow):
         self._build_ui()
         self._build_toolbar(source_kind, source_arg, baud)
 
-        # --- repaint timers ------------------------------------------
-        self._ui_timer = QTimer(self)
+        # --- repaint timers ------------------------------------------            # origin input to be found
+        self._ui_timer = QTimer(self) 
         self._ui_timer.timeout.connect(self._refresh)
         self._ui_timer.start(int(1000 / UI_REFRESH_HZ))
 
@@ -333,7 +334,7 @@ class GroundStation(QMainWindow):
         self._last_phase = phase
         self._phase_entered_t = frame.t_seconds
 
-        severity = "warn" if phase in (FlightPhase.BOOST, FlightPhase.APOGEE) else "event"
+        severity = "warn" if phase in (EngineFire.FIRE_INJECTOR, EngineFire.OPEN_SV13) else "event"
         self.log.log(
             severity,
             f"PHASE → {phase.label:<8} alt {frame.filtered_altitude:8.1f} m   "
@@ -341,7 +342,7 @@ class GroundStation(QMainWindow):
         )
         self.graphs.add_marker(frame.t_seconds, phase.label, phase.color)
 
-        if phase == FlightPhase.APOGEE and not self._apogee_marked:
+        if phase == EngineFire.OPEN_SV13 and not self._apogee_marked:
             self._apogee_marked = True
             self.map.mark_apogee(frame)
 
@@ -389,7 +390,7 @@ class GroundStation(QMainWindow):
         self.graphs.clear()
         self.map.clear_track()
         self.status.reset()
-        self._last_phase = FlightPhase.IDLE
+        self._last_phase = EngineFire.IDLE
         self._phase_entered_t = 0.0
         self._last_t = 0.0
         self._apogee_marked = False
