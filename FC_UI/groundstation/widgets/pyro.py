@@ -19,7 +19,7 @@ from __future__ import annotations
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QFrame, QGridLayout, QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
-from ..telemetry import PYRO_CHANNELS, PyroState
+from ..telemetry import PYRO_CHANNELS, PyroValve
 from ..theme import FONT_MONO, PALETTE
 
 
@@ -29,7 +29,7 @@ class _PyroBadge(QFrame):
     def __init__(self, index: int, name: str, pin: str, parent=None):
         super().__init__(parent)
         self.index = index
-        self._state = PyroState.DISARMED
+        self._state = PyroValve.IDLE
 
         self.setMinimumHeight(74)
         lay = QVBoxLayout(self)
@@ -71,22 +71,22 @@ class _PyroBadge(QFrame):
         self._badge.setMinimumHeight(30)
         lay.addWidget(self._badge)
 
-        self._apply(PyroState.DISARMED, continuity=None)
+        self._apply(PyroValve.IDLE, continuity=None)
 
     # -----------------------------------------------------------------
-    def set_state(self, state: PyroState, continuity: bool | None) -> None:
+    def set_state(self, state: PyroValve, continuity: bool | None) -> None:
         if state == self._state and continuity == getattr(self, "_last_cont", "unset"):
             return
         self._state = state
         self._last_cont = continuity
         self._apply(state, continuity)
 
-    def _apply(self, state: PyroState, continuity: bool | None) -> None:
+    def _apply(self, state: PyroValve, continuity: bool | None) -> None:
         color = state.color
         self._badge.setText(state.label)
 
         # FIRED gets a filled, glowing treatment so it reads across the room.
-        if state == PyroState.FIRED:
+        if state == PyroValve.FIRED:
             badge_css = (
                 f"color:{PALETTE.bg_deep}; background-color:{color};"
                 f"border:1px solid {color};"
@@ -168,7 +168,7 @@ class PyroPanel(QWidget):
         continuity = frame.continuity
         for i, badge in enumerate(self.badges):
             badge.set_state(
-                states[i] if i < len(states) else PyroState.DISARMED,
+                states[i] if i < len(states) else PyroValve.IDLE,
                 continuity[i] if continuity and i < len(continuity) else None,
             )
-        self._set_master(frame.armed or any(s != PyroState.DISARMED for s in states))
+        self._set_master(frame.armed or any(s != PyroValve.IDLE for s in states))
