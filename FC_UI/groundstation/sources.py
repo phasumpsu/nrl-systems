@@ -18,15 +18,17 @@ import math
 import random
 import socket
 import time
+import struct
 
 from PyQt6.QtCore import QThread, pyqtSignal
 
 from .telemetry import (
     EXTENDED_PACKET_SIZE,
     FULL_PACKET_SIZE,
+    FULL_PACKET_FORMAT,
     LORA_PACKET_SIZE,
     FlightPhase,
-    PyroState,
+    PyroValve,
     TelemetryFrame,
     decode_csv_log,
     decode_extended_packet,
@@ -117,7 +119,7 @@ class MockSource(TelemetrySource):
         self.yaw = self.RAIL_AZIMUTH_DEG
         self.phase = FlightPhase.IDLE
         self.armed = False
-        self.pyro = [PyroState.DISARMED] * 4
+        self.pyro = [PyroValve.IDLE] * 4
         self.apogee_counter = 0
         self.landing_counter = 0
         self.launch_counter = 0
@@ -158,7 +160,7 @@ class MockSource(TelemetrySource):
         prev_phase = self.phase
 
         boosting = (
-            self.phase == FlightPhase.BOOST
+            self.phase == FlightPhase.FIRE_INJECTOR
             and (self.t - self._ignition_t) < self.BURN_TIME
         )
 
@@ -170,12 +172,12 @@ class MockSource(TelemetrySource):
             self.vh += self.THRUST_ACCEL * ax_t * dt
             self.vz += (self.THRUST_ACCEL * az_t - G0) * dt
             az_body = self.THRUST_ACCEL / G0
-        elif self.phase in (FlightPhase.BOOST, FlightPhase.COAST, FlightPhase.APOGEE):
+        elif self.phase in (FlightPhase.FIRE_INJECTOR, FlightPhase.OPEN_SV12, FlightPhase.OPEN_SV13):
             drag = self.COAST_DRAG_K * self.vz * abs(self.vz)
             self.vz += (-G0 - drag) * dt
             self.vh *= (1.0 - 0.35 * dt)
             az_body = -drag / G0
-        elif self.phase == FlightPhase.DESCENT:
+        elif self.phase == FlightPhase.CLOSE_SV12:
             terminal = self.MAIN_TERMINAL if self.alt < self.MAIN_DEPLOY_ALT else self.DROGUE_TERMINAL
             k = G0 / (terminal ** 2)
             self.vz += (-G0 + k * self.vz ** 2) * dt
@@ -202,9 +204,9 @@ class MockSource(TelemetrySource):
         # ---- attitude ------------------------------------------------
         if boosting:
             self.roll_rate = min(self.roll_rate + 90.0 * dt, 190.0)
-        elif self.phase == FlightPhase.DESCENT:
+        elif self.phase == FlightPhase.CLOSE_SV12:
             self.roll_rate += (35.0 - self.roll_rate) * 0.4 * dt
-        elif self.phase == FlightPhase.LANDED:
+        elif self.phase == FlightPhase.CLOSE_SV13:
             self.roll_rate *= (1.0 - 2.0 * dt)
         self.roll = (self.roll + self.roll_rate * dt) % 360.0
         self.yaw = (self.yaw + 1.5 * dt * math.sin(self.t * 0.3)) % 360.0
@@ -216,7 +218,7 @@ class MockSource(TelemetrySource):
             self.event.emit("info", f"Phase -> {self.phase.label}")
 
         # ---- power ----------------------------------------------------
-        self.battery -= 0.00004 * dt * (12.0 if self.phase >= FlightPhase.BOOST else 1.0)
+        self.battery -= 0.00004 * dt * (12.0 if self.phase >= FlightPhase.FIRE_INJECTOR else 1.0)
 
     def _wind_at(self, alt: float) -> float:
         """Simple wind shear: stronger aloft, gusting."""
@@ -231,56 +233,56 @@ class MockSource(TelemetrySource):
             if self.t >= self.ARM_AT:
                 self.armed = True
                 self.phase = FlightPhase.ARMED
-                self.pyro = [PyroState.ARMED, PyroState.ARMED,
-                             PyroState.DISARMED, PyroState.DISARMED]
+                self.pyro = [PyroValve.ARMED, PyroValve.ARMED,
+                             PyroValve.IDLE, PyroValve.IDLE]
 
         elif self.phase == FlightPhase.ARMED:
             if self.t >= self.IGNITION_AT:
                 self.launch_counter += 1
                 if self.launch_counter >= PARAMS.launch_debounce:
-                    self.phase = FlightPhase.BOOST
+                    self.phase = FlightPhase.FIRE_INJECTOR
                     self._ignition_t = self.t
                     self.event.emit("warn", "LAUNCH DETECTED")
 
-        elif self.phase == FlightPhase.BOOST:
+        elif self.phase == FlightPhase.FIRE_INJECTOR:
             if (self.t - self._ignition_t) >= self.BURN_TIME:
-                self.phase = FlightPhase.COAST
+                self.phase = FlightPhase.OPEN_SV12
                 self.event.emit("info", f"Burnout — {self.vz:.0f} m/s")
 
-        elif self.phase == FlightPhase.COAST:
+        elif self.phase == FlightPhase.OPEN_SV12:
             if self.vz < PARAMS.apogee_velocity_thresh:
                 self.apogee_counter += 1
                 if self.apogee_counter >= PARAMS.apogee_persist_samples:
-                    self.phase = FlightPhase.APOGEE
+                    self.phase = FlightPhase.OPEN_SV13
                     self._apogee_t = self.t
                     self.event.emit("warn", f"APOGEE — {self.alt:.0f} m AGL")
             else:
                 self.apogee_counter = 0
 
-        elif self.phase == FlightPhase.APOGEE:
+        elif self.phase == FlightPhase.OPEN_SV13:
             # pyro.cpp fires channel 0 on entry to APOGEE.
-            if self.pyro[0] != PyroState.FIRED:
-                self.pyro[0] = PyroState.FIRED
+            if self.pyro[0] != PyroValve.FIRED:
+                self.pyro[0] = PyroValve.FIRED
                 self.battery -= 0.06
                 self.event.emit("warn", "PYRO 0 FIRED — DROGUE")
             if (self.t - self._apogee_t) > 0.4:
-                self.phase = FlightPhase.DESCENT
+                self.phase = FlightPhase.CLOSE_SV12
 
-        elif self.phase == FlightPhase.DESCENT:
-            if self.alt < self.MAIN_DEPLOY_ALT and self.pyro[1] != PyroState.FIRED:
-                self.pyro[1] = PyroState.FIRED
+        elif self.phase == FlightPhase.CLOSE_SV12:
+            if self.alt < self.MAIN_DEPLOY_ALT and self.pyro[1] != PyroValve.FIRED:
+                self.pyro[1] = PyroValve.FIRED
                 self.battery -= 0.06
                 self.event.emit("warn", "PYRO 1 FIRED — MAIN")
             if (self.alt < PARAMS.landing_altitude_thresh
                     and abs(self.vz) < PARAMS.landing_velocity_thresh):
                 self.landing_counter += 1
                 if self.landing_counter >= PARAMS.landing_persist_samples:
-                    self.phase = FlightPhase.LANDED
+                    self.phase = FlightPhase.CLOSE_SV13
                     self.event.emit("info", f"TOUCHDOWN — apogee {self.max_alt:.0f} m")
             else:
                 self.landing_counter = 0
 
-        elif self.phase == FlightPhase.LANDED:
+        elif self.phase == FlightPhase.CLOSE_SV13:
             self._landed_hold += dt
             if self.loop and self._landed_hold > 8.0:
                 self.event.emit("info", "Recycling mock flight")
@@ -295,7 +297,7 @@ class MockSource(TelemetrySource):
         speed = math.hypot(self.vz, self.vh)
         if self.phase <= FlightPhase.ARMED:
             pitch = 90.0 - self.RAIL_TILT_DEG
-        elif self.phase == FlightPhase.LANDED:
+        elif self.phase == FlightPhase.CLOSE_SV13:
             pitch = self._last_pitch * 0.96      # settles onto its side
         elif speed < 2.0:
             pitch = self._last_pitch
@@ -314,33 +316,10 @@ class MockSource(TelemetrySource):
         # ISA-ish pressure for the barometer channel.
         pressure = 101325.0 * (1.0 - 2.25577e-5 * (self.alt + LAUNCH_SITE_ELEV_M)) ** 5.25588
 
+        v = struct.unpack(FULL_PACKET_FORMAT, raw[:FULL_PACKET_SIZE])
         return TelemetryFrame(
-            timestamp_ms=int(self.t * 1000),
-            ax_low=noise(0.05), ay_low=noise(0.05), az_low=az_g * G0 + noise(0.08),
-            gx=noise(1.5), gy=noise(1.5), gz=self.roll_rate + noise(2.0),
-            ax_high=noise(0.03), ay_high=noise(0.03), az_high=az_g + noise(0.05),
-            pressure_pa=pressure + noise(8.0),
-            temperature_c=24.0 - 0.0065 * self.alt + noise(0.15),
-            filtered_altitude=self.alt + noise(0.4),
-            vertical_velocity=self.vz + noise(0.25),
-            imu_vertical_vel=self.vz + noise(1.1),
-            battery_voltage=self.battery + noise(0.006),
-            flight_phase=self.phase,
-            launch_confidence=100 if self.phase >= FlightPhase.BOOST else 0,
-            apogee_confidence=min(100, self.apogee_counter * 20),
-            roll=self.roll, pitch=pitch, yaw=self.yaw,
-            lat=lat, lon=lon,
-            gps_alt=self.alt + LAUNCH_SITE_ELEV_M + noise(1.5),
-            gps_speed=speed,
-            gps_heading=self.yaw,
-            gps_vertical_vel=self.vz,
-            gps_fix=3,
-            gps_sats=random.randint(9, 14),
-            rssi=-52.0 - 20.0 * math.log10(max(slant, 50.0) / 50.0) + noise(1.5),
-            snr=9.5 + noise(0.8),
-            pyro_states=tuple(self.pyro),
-            armed=self.armed,
-            continuity=(True, True, False, False),
+            engine_thrust=v[0] | v[1], nitrous_weight=v[2], run_tank_pressure_psi=v[3] | v[4], cc_pressure_psi=v[5] | v[6],
+            top_cc_temp_c=v[7] | v[8], bottom_cc_temp_c=v[9] | v[10], mcu_timer=v[11] | v[12]
         )
 
 
