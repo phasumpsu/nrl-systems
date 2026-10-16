@@ -38,7 +38,9 @@ class Palette:
     red: str = "#FF3B4E"          # fired / abort
     magenta: str = "#C778FF"      # secondary trace (kept distinct from the primary pink)
     white: str = "#FFFFFF"
+    blue: str = "#0000FF"
     grey: str = "#5A5158"         # disarmed / inert
+    red: str = "#FF0000"
 
 
 PALETTE = Palette()
@@ -53,6 +55,7 @@ SERIES_COLORS = (
     PALETTE.magenta,
     PALETTE.green,
     PALETTE.red,
+    PALETTE.blue,
 )
 
 

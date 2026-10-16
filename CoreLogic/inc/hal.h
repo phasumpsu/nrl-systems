@@ -19,6 +19,7 @@ struct engine_signal_decoded {
     float cc_pressure;
     float top_cc_temp;
     float bot_cc_temp;
+    float timer;
 };
 
 #endif

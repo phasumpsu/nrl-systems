@@ -20,14 +20,18 @@ BO_ 256 EngineSignal: 24 ToEngine
     SG_ CCPressure : 40|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
     SG_ TopCCTemp : 56|16@1+ (0.1,0) [0|1300.0] "C" ToGround
     SG_ BotCCTemp : 72|16@1+ (0.1,0) [0|1300.0] "C" ToGround
-    SG_ MCUTimer : 88|16@1+ (1,0) [0|65535] "s" ToGround
-    SG_ ReservedEngine : 104|88@1+ (1,0) [0|1] "" ToGround
+    SG_ MCUTimer : 88|16@1+ (0.5,0) [0|32767.5] "s" ToGround
+    SG_ SV11State : 104|4@1+ (1,0) [0|3] "" ToGround
+    SG_ SV12State : 108|4@1+ (1,0) [0|3] "" ToGround
+    SG_ SV13State : 112|4@1+ (1,0) [0|3] "" ToGround
+    SG_ IgnitorState : 116|4@1+ (1,0) [0|3] "" ToGround
+    SG_ ReservedEngine : 120|72@1+ (1,0) [0|1] "" ToGround
 
 BO_ 512 GroundStationSignal: 16 ToGround
-    SG_ GroundSV11 : 0|4@1+ (1,0) [0|1] "" ToEngine
-    SG_ RunTankSV12 : 4|4@1+ (1,0) [0|1] "" ToEngine
-    SG_ GaugeSV13 : 8|4@1+ (1,0) [0|1] "" ToEngine
-    SG_ FireInjector : 12|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ GroundSV11Toggle : 0|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ RunTankSV12Toggle : 4|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ GaugeSV13Toggle : 8|4@1+ (1,0) [0|1] "" ToEngine
+    SG_ FireIgnitorToggle : 12|4@1+ (1,0) [0|1] "" ToEngine
     SG_ Reserved : 16|112@1+ (1,0) [0|1] "" ToEngine
 
 CM_ BO_ 256 "The data that's coming from the engine into the ground station";

@@ -224,7 +224,6 @@ python main.py --source udp               # in another
 To add a source of your own, subclass `TelemetrySource` in `sources.py` and
 emit `TelemetryFrame` objects on the `frame` signal — nothing in the UI
 needs to change.
-
 ---
 
 ## Notes

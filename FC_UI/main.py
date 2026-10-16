@@ -52,18 +52,11 @@ QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts, True)
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Nittany Rocket Labs ground station")
-    parser.add_argument(
-        "--source", choices=("mock", "serial", "udp"), default="mock",
-        help="telemetry source (default: mock)",
-    )
+    parser = argparse.ArgumentParser(description="Nittany Rocket Labs Ground Station")
+    parser.add_argument("--source", default="mock", help="telemetry source (default: mock)")
     parser.add_argument("--port", default="", help="serial port, e.g. COM5")
     parser.add_argument("--baud", type=int, default=115200, help="serial baud rate")
-    parser.add_argument("--udp-port", type=int, default=5005, help="UDP listen port")
-    parser.add_argument("--speed", type=float, default=1.0,
-                        help="mock playback speed multiplier")
-    parser.add_argument("--no-autostart", action="store_true",
-                        help="open the window without connecting the source")
+    parser.add_argument("--no-autostart", action="store_true", help="open the window without connecting the source")
     return parser.parse_args(argv)
 
 
@@ -77,18 +70,7 @@ def main(argv: list[str] | None = None) -> int:
     font = QFont("Segoe UI", 9)
     app.setFont(font)
 
-    source_arg = {
-        "mock": f"{args.speed:g}",
-        "serial": args.port,
-        "udp": str(args.udp_port),
-    }[args.source]
-
-    window = GroundStation(
-        source_kind=args.source,
-        source_arg=source_arg,
-        baud=args.baud,
-        speed=args.speed,
-    )
+    window = GroundStation()
     window.show()
 
     if not args.no_autostart:

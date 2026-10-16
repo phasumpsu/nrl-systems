@@ -263,7 +263,7 @@ class TelemetryPlot(QWidget):
 
 # =====================================================================
 class GraphStack(QWidget):
-    """The altitude / acceleration / velocity plot column."""
+    """The engine thrust / pressure / temperature plot column."""
 
     WINDOWS = (15.0, 45.0, 120.0, 1e9)
     WINDOW_LABELS = ("15s", "45s", "2m", "ALL")
@@ -337,9 +337,9 @@ class GraphStack(QWidget):
     # -----------------------------------------------------------------
     def append(self, frame) -> None:
         t = frame.t_seconds
-        self.altitude.append(t, (frame.filtered_altitude, frame.gps_alt))
-        self.acceleration.append(t, (frame.accel_magnitude_g, frame.az_high))
-        self.velocity.append(t, (frame.vertical_velocity, frame.imu_vertical_vel))
+        self.engineThrust.append(t, (frame.engine_thrust_n,))
+        self.pressure.append(t, (frame.cc_pressure_psi, frame.run_tank_pressure_psi))
+        self.temp.append(t, (frame. top_cc_temp_c, frame.bot_cc_temp_c))
 
     def redraw(self) -> None:
         for plot in self.plots:

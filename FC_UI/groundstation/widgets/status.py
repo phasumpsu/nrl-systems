@@ -19,7 +19,6 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from ..telemetry import PARAMS
 from ..theme import FONT_MONO, PALETTE
 
 
@@ -89,108 +88,54 @@ class StatTile(QFrame):
 
 # =====================================================================
 class StatusPanel(QWidget):
-    """Key flight numbers, peaks, and link health."""
+    """Read-only engine measurements and receive count."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
-
-        self.max_altitude = 0.0
-        self.max_velocity = 0.0
-        self.max_accel = 0.0
         self.packet_count = 0
-        self.bad_packets = 0
-        self._last_rx = 0.0
-        self._rate_window: deque[float] = deque(maxlen=40)
+        self._last_rx = None
 
         grid = QGridLayout(self)
         grid.setContentsMargins(8, 8, 8, 8)
         grid.setSpacing(7)
 
-        self.tiles: dict[str, StatTile] = {}
+        self.tiles = {}
 
-        def add(key: str, label: str, unit: str, row: int, col: int,
-                color: str = PALETTE.text) -> None:
-            tile = StatTile(label, unit, color)
+        specs = (
+            ("thrust", "THRUST", "N"),
+            ("weight", "NITROUS WEIGHT", "lbs"),
+            ("run_pressure", "RUN TANK", "psi"),
+            ("cc_pressure", "CHAMBER", "psi"),
+            ("top_temp", "TOP CC TEMP", "°C"),
+            ("bot_temp", "BOTTOM CC TEMP", "°C"),
+            ("mcu_time", "MCU TIME", "s"),
+            ("packets", "VALID FRAMES", ""),
+        )
+
+        for i, (key, label, unit) in enumerate(specs):
+            tile = StatTile(label, unit)
             self.tiles[key] = tile
-            grid.addWidget(tile, row, col)
+            grid.addWidget(tile, i // 4, i % 4)
 
-        add("altitude", "ALTITUDE AGL", "m", 0, 0, PALETTE.cyan)
-        add("velocity", "VERT VELOCITY", "m/s", 0, 1, PALETTE.cyan)
-        add("accel", "ACCELERATION", "g", 0, 2, PALETTE.amber)
-        add("apogee", "APOGEE", "m", 0, 3, PALETTE.magenta)
-
-        add("battery", "BATTERY", "V", 1, 0, PALETTE.green)
-        add("rssi", "LINK RSSI", "dBm", 1, 1, PALETTE.green)
-        add("rate", "PACKET RATE", "Hz", 1, 2)
-        add("temp", "BOARD TEMP", "°C", 1, 3)
-
-        for col in range(4):
-            grid.setColumnStretch(col, 1)
-
-    # -----------------------------------------------------------------
     def note_packet(self) -> None:
-        now = time.perf_counter()
         self.packet_count += 1
-        if self._last_rx:
-            self._rate_window.append(now - self._last_rx)
-        self._last_rx = now
+        self._last_rx = time.monotonic()
+        self.tiles["packets"].set(str(self.packet_count))
 
     def reset(self) -> None:
-        self.max_altitude = 0.0
-        self.max_velocity = 0.0
-        self.max_accel = 0.0
         self.packet_count = 0
-        self.bad_packets = 0
-        self._rate_window.clear()
-        self._last_rx = 0.0
+        self._last_rx = None
+        for tile in self.tiles.values():
+            tile.set("—")
 
-    # -----------------------------------------------------------------
     def update_frame(self, frame) -> None:
-        self.max_altitude = max(self.max_altitude, frame.filtered_altitude)
-        self.max_velocity = max(self.max_velocity, abs(frame.vertical_velocity))
-        self.max_accel = max(self.max_accel, frame.accel_magnitude_g)
-
-        self.tiles["altitude"].set(
-            f"{frame.filtered_altitude:,.0f}",
-            f"{frame.altitude_ft:,.0f} ft",
-        )
-        self.tiles["velocity"].set(
-            f"{frame.vertical_velocity:+,.1f}",
-            f"mach {abs(frame.vertical_velocity) / 343.0:.2f}",
-            PALETTE.cyan if frame.vertical_velocity >= 0 else PALETTE.magenta,
-        )
-
-        accel = frame.accel_magnitude_g
-        self.tiles["accel"].set(
-            f"{accel:,.1f}",
-            f"peak {self.max_accel:,.1f} g",
-            PALETTE.red if accel > PARAMS.launch_threshold_g else PALETTE.amber,
-        )
-        self.tiles["apogee"].set(
-            f"{self.max_altitude:,.0f}",
-            f"{self.max_altitude * 3.28084:,.0f} ft",
-        )
-
-        volts = frame.battery_voltage
-        self.tiles["battery"].set(
-            f"{volts:,.2f}",
-            "2S LiPo",
-            PALETTE.green if volts > 7.4 else PALETTE.amber if volts > 7.0 else PALETTE.red,
-        )
-
-        rssi = frame.rssi
-        self.tiles["rssi"].set(
-            f"{rssi:,.0f}" if rssi else "—",
-            f"snr {frame.snr:,.1f}" if frame.snr else "",
-            PALETTE.green if rssi > -90 else PALETTE.amber if rssi > -110 else PALETTE.red,
-        )
-
-        if self._rate_window:
-            mean_dt = sum(self._rate_window) / len(self._rate_window)
-            rate = 1.0 / mean_dt if mean_dt > 0 else 0.0
-            self.tiles["rate"].set(f"{rate:,.0f}", f"{self.packet_count:,} pkts")
-
-        self.tiles["temp"].set(f"{frame.temperature_c:,.1f}", f"{frame.pressure_pa / 100:,.0f} hPa")
+        self.tiles["thrust"].set(f"{frame.engine_thrust_n:.1f}")
+        self.tiles["weight"].set(f"{frame.nitrous_weight_lbs:.0f}")
+        self.tiles["run_pressure"].set(f"{frame.run_tank_pressure_psi:.1f}")
+        self.tiles["cc_pressure"].set(f"{frame.cc_pressure_psi:.1f}")
+        self.tiles["top_temp"].set(f"{frame.top_cc_temp_c:.1f}")
+        self.tiles["bot_temp"].set(f"{frame.bot_cc_temp_c:.1f}")
+        self.tiles["mcu_time"].set(f"{frame.mcu_time_s:.1f}")
 
 
 # =====================================================================

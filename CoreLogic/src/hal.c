@@ -104,6 +104,7 @@ static int decode_signal(const uint8_t data[24], struct engine_signal_decoded *o
     uint16_t cc_pressure_raw = (uint16_t)data[5] | (uint16_t)data[6] << 8;
     uint16_t top_cc_temp_raw = (uint16_t)data [7] | (uint16_t)data[8] << 8;
     uint16_t bot_cc_temp_raw = (uint16_t)data[9] | (uint16_t)data[10] << 8;
+    uint16_t timer_raw = (uint16_t)data[11] | (uint16_t)data[12] << 8;
     
     /* Takes the raw inputs from the engine and scales them by however much protocol.dbc defines*/
     output->engine_thrust = engine_thrust_raw * 0.1f;
@@ -112,6 +113,7 @@ static int decode_signal(const uint8_t data[24], struct engine_signal_decoded *o
     output->cc_pressure = cc_pressure_raw * 0.1f;
     output->top_cc_temp = top_cc_temp_raw * 0.1f;
     output->bot_cc_temp = bot_cc_temp_raw * 0.1f;
+    output->timer = timer_raw * 0.5f;
     
     return 0;
 }

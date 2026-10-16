@@ -6,9 +6,11 @@
 
 int main(void)
 {
-    switch () {
+    int x;
+    scanf("%d", &x);
+    switch (x) {
         //Case 1 is for simulations, solely within the software. We will send a fake frame via another terminal, and test whether the actual system is able to receive and send data in a vaccuum.
-        case 1:
+        case 1 :
             if (hal_init("vcan0") != 0) {
                 fprintf(stderr, "Failed to initialize CAN interface\n");
                 return 1;
