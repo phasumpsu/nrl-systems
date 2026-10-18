@@ -1,6 +1,6 @@
 #define _DEFAULT_SOURCE
 
-#include "hal.h"
+#include "../inc/hal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -78,20 +78,6 @@ int hal_init(const char *interface_name)
     return 0;
 }
 
-int test_frame(struct canfd_frame frame){
-    printf("Received CAN frame\n");
-    printf("CAN ID: 0x%X\n", frame.can_id & CAN_EFF_MASK);
-    printf("Length: %u\n", frame.len);
-    printf("Data:");
-
-    for (unsigned int i = 0; i < frame.len; i++) {
-        printf(" %02X", frame.data[i]);
-    }
-
-    printf("\n");
-
-    return 0;
-}
 
 static int decode_signal(const uint8_t data[24], struct engine_signal_decoded *output){
     if (data == NULL || output == NULL)
@@ -105,6 +91,12 @@ static int decode_signal(const uint8_t data[24], struct engine_signal_decoded *o
     uint16_t top_cc_temp_raw = (uint16_t)data [7] | (uint16_t)data[8] << 8;
     uint16_t bot_cc_temp_raw = (uint16_t)data[9] | (uint16_t)data[10] << 8;
     uint16_t timer_raw = (uint16_t)data[11] | (uint16_t)data[12] << 8;
+    uint8_t sv11_raw = data[13] & 0x0F;
+    uint8_t sv12_raw = (data[13] & 0xF0) >> 4;
+    uint8_t sv13_raw = data[14] & 0x0F;
+    uint8_t ignitor_raw = (data[14] & 0xF0) >> 4;
+    uint8_t armed_raw = data[15] & 0x0F;
+    uint8_t routine_sequence_raw = (data[15] >> 4) & 0x0Fu;
     
     /* Takes the raw inputs from the engine and scales them by however much protocol.dbc defines*/
     output->engine_thrust = engine_thrust_raw * 0.1f;
@@ -114,21 +106,30 @@ static int decode_signal(const uint8_t data[24], struct engine_signal_decoded *o
     output->top_cc_temp = top_cc_temp_raw * 0.1f;
     output->bot_cc_temp = bot_cc_temp_raw * 0.1f;
     output->timer = timer_raw * 0.5f;
+    output->sv11_state = sv11_raw;
+    output->sv12_state = sv12_raw;
+    output->sv13_state = sv13_raw;
+    output->ignitor_state = ignitor_raw;
+    output->armed_status = armed_raw;
+    output->routine_sequence = routine_sequence_raw;
     
     return 0;
 }
 
-int hal_read_signal(void)
+int hal_read_signal(struct engine_signal_decoded *output)
 {
     struct canfd_frame frame;
     ssize_t bytes_read;
-    struct engine_signal_decoded decoded;
 
     //Check if the can socket is initialized.
     if (can_socket < 0) {
         fprintf(stderr, "CAN socket is not initialized\n");
         return -1;
     }
+
+    //Checks whether the inputted frame is valid.
+    if(output == NULL)
+        return -1;
 
     bytes_read = read(can_socket, &frame, sizeof(frame));
 
@@ -138,8 +139,8 @@ int hal_read_signal(void)
         return -1;
     }
 
-    //Verifies if the frame is a classic CAN frame or CANFD frame. 
-    if (bytes_read != CANFD_MTU && bytes_read != CAN_MTU) {
+    //Verifies if the frame is a classic CANFD frame. 
+    if (bytes_read != CANFD_MTU) {
         fprintf(stderr, "Unexpected frame size: %zd bytes\n", bytes_read);
         return -1;
     }
@@ -147,26 +148,23 @@ int hal_read_signal(void)
     //Ensure that the frame ID is 0x100,
         //defined as the engine signal message from protocol.dbc. 
     if(frame.can_id != 0x100){
-        return -1;
+        return 1; //Not an error, but not the frame we want to decode.
     }
 
     //This checks whether the frame we have contains enough payload bytes for all the information we want to decode. 
-    if(frame.len < 11){
-        fprintf(stderr, "Engine frame is too short\n");
+    if(frame.len != 24){
+        fprintf(stderr, "Expected 24 byts, got %u\n", frame.len);
         return -1;
     }
 
     //Check if we are able to decode the frame.
-    if (decode_signal(frame.data, &decoded) != 0)
+    if (decode_signal(frame.data, output) != 0)
         return -1;
-
-    //This function is separate just because the current function was getting messy. 
-    test_frame(frame);
 
     return 0;
 }
 
-int hal_send_signal(uint8_t ground_sv11, uint8_t run_tank_sv12, uint8_t gauge_sv13, uint8_t fire_injector){
+int hal_send_signal(uint8_t ground_sv11, uint8_t run_tank_sv12, uint8_t gauge_sv13, uint8_t armed_select, uint8_t routine_select, uint16_t fire_delay_ms, uint8_t load_cell_tare){
     struct canfd_frame frame = {0};
 
     if (can_socket < 0) {
@@ -180,9 +178,13 @@ int hal_send_signal(uint8_t ground_sv11, uint8_t run_tank_sv12, uint8_t gauge_sv
 
     //Packs two 4-bit acutator values into 1 byte. 
     //ground_sv11 occupies bits 0-3, while run_tank_sv12 occupies bits 4-7.
-        //gauge_sv13 occupies bits 8-11, while fire_injector occupies bits 12-15.
+        //gauge_sv13 occupies bits 8-11, while armed_select occupies bits 12-15.
+        //Finally, routine_select occupies bits 16-19, while fire_delay_ms occupies bits 20-35.
     frame.data[0] = (ground_sv11 & 0x0Fu) | ((run_tank_sv12 & 0x0Fu) << 4);
-    frame.data[1] = (gauge_sv13 & 0x0Fu) | ((fire_injector & 0x0Fu) << 4);
+    frame.data[1] = (gauge_sv13 & 0x0Fu) | ((armed_select & 0x0Fu) << 4);
+    frame.data[2] = (routine_select & 0x0Fu) | ((fire_delay_ms & 0x0Fu) << 4);
+    frame.data[3] = (fire_delay_ms >> 4) & 0xFFu;
+    frame.data[4] = ((fire_delay_ms >> 12) & 0x0Fu) | ((load_cell_tare & 0x0Fu) << 4);
 
     ssize_t byte_written = write(can_socket, &frame, CANFD_MTU);
 

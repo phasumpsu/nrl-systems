@@ -16,29 +16,8 @@ from __future__ import annotations
 import argparse
 import os
 import sys
-
-# The map (QWebEngineView, backed internally by a QQuickWidget/RHI surface)
-# and the 3D attitude indicator (QOpenGLWidget, via pyqtgraph.opengl) both
-# live in the same top-level window and both need a graphics API. On Windows
-# Qt Quick's RHI defaults to Direct3D11, which conflicts with the desktop
-# OpenGL context the attitude indicator forces onto that window -- the web
-# view's QQuickWidget then fails to get a QRhi and renders nothing (silently
-# black, no exception). Forcing both onto OpenGL fixes the mismatch. This
-# must be set before any Qt module initializes, so it comes before every
-# other import.
-#
-# setdefault() means an env var set before launch always wins, so if the
-# whole app feels sluggish (not just the map/3D panes) on a given machine,
-# that's worth A/B testing -- e.g. in PowerShell:
-#   $env:QSG_RHI_BACKEND="software"; python main.py   # slower GPU path but
-#                                                      # sidesteps flaky GL
-#                                                      # drivers entirely
-# ("d3d11", Qt Quick's own default, will bring back the black map -- it's
-# only useful here to confirm whether "opengl" itself is the slow part.)
 os.environ.setdefault("QSG_RHI_BACKEND", "opengl")
 
-# QtWebEngine must be imported before the QApplication is constructed, so the
-# widgets package (which pulls in the map view) is imported up here.
 from groundstation.mainwindow import GroundStation           # noqa: E402
 from groundstation.theme import build_stylesheet             # noqa: E402
 

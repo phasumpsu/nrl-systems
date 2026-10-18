@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
 )
 
 from ..theme import FONT_MONO, PALETTE
-
+from ..telemetry import ObservedState, RoutineSequence
 
 # =====================================================================
 class StatTile(QFrame):
@@ -88,39 +88,66 @@ class StatTile(QFrame):
 
 # =====================================================================
 class StatusPanel(QWidget):
-    """Read-only engine measurements and receive count."""
+    """Compact read-only panel for either states or numerical measurements."""
 
-    def __init__(self, parent=None):
+    NUMERIC_SPECS = (
+        ("thrust", "THRUST", "Lbf"),
+        ("weight", "NITROUS WEIGHT", "lbs"),
+        ("run_pressure", "RUN TANK", "psi"),
+        ("cc_pressure", "CHAMBER", "psi"),
+        ("top_temp", "TOP CC TEMP", "°F"),
+        ("bot_temp", "BOTTOM CC TEMP", "°F"),
+        ("mcu_time", "MCU TIME", "s"),
+        ("packets", "VALID FRAMES", ""),
+    )
+
+    STATE_SPECS = (
+        ("sv11_state", "SV11", ""),
+        ("sv12_state", "SV12", ""),
+        ("sv13_state", "SV13", ""),
+        ("ignitor_state", "IGNITOR", ""),
+        ("armed_status", "ARMED", ""),
+        ("routine_sequence", "ROUTINE", ""),
+    )
+
+    def __init__(self, kind: str = "numbers", parent=None):
         super().__init__(parent)
+
+        if kind not in ("numbers", "states"):
+            raise ValueError(f"Unknown status panel kind: {kind}")
+
+        self.kind = kind
         self.packet_count = 0
         self._last_rx = None
+        self.tiles: dict[str, StatTile] = {}
 
         grid = QGridLayout(self)
-        grid.setContentsMargins(8, 8, 8, 8)
-        grid.setSpacing(7)
+        grid.setContentsMargins(4, 4, 4, 4)
+        grid.setSpacing(5)
 
-        self.tiles = {}
-
-        specs = (
-            ("thrust", "THRUST", "N"),
-            ("weight", "NITROUS WEIGHT", "lbs"),
-            ("run_pressure", "RUN TANK", "psi"),
-            ("cc_pressure", "CHAMBER", "psi"),
-            ("top_temp", "TOP CC TEMP", "°C"),
-            ("bot_temp", "BOTTOM CC TEMP", "°C"),
-            ("mcu_time", "MCU TIME", "s"),
-            ("packets", "VALID FRAMES", ""),
-        )
+        specs = self.STATE_SPECS if kind == "states" else self.NUMERIC_SPECS
 
         for i, (key, label, unit) in enumerate(specs):
             tile = StatTile(label, unit)
             self.tiles[key] = tile
-            grid.addWidget(tile, i // 4, i % 4)
+
+            if kind == "states":
+                grid.addWidget(tile, i, 0)       # Vertical left column
+            else:
+                grid.addWidget(tile, i // 4, i % 4)  # Two compact bottom rows
+
+        if kind == "states":
+            grid.setRowStretch(len(specs), 1)
+            self.setFixedWidth(180)
+        else:
+            for column in range(4):
+                grid.setColumnStretch(column, 1)
 
     def note_packet(self) -> None:
-        self.packet_count += 1
-        self._last_rx = time.monotonic()
-        self.tiles["packets"].set(str(self.packet_count))
+        if self.kind == "numbers":
+            self.packet_count += 1
+            self._last_rx = time.monotonic()
+            self.tiles["packets"].set(str(self.packet_count))
 
     def reset(self) -> None:
         self.packet_count = 0
@@ -129,14 +156,34 @@ class StatusPanel(QWidget):
             tile.set("—")
 
     def update_frame(self, frame) -> None:
-        self.tiles["thrust"].set(f"{frame.engine_thrust_n:.1f}")
-        self.tiles["weight"].set(f"{frame.nitrous_weight_lbs:.0f}")
-        self.tiles["run_pressure"].set(f"{frame.run_tank_pressure_psi:.1f}")
-        self.tiles["cc_pressure"].set(f"{frame.cc_pressure_psi:.1f}")
-        self.tiles["top_temp"].set(f"{frame.top_cc_temp_c:.1f}")
-        self.tiles["bot_temp"].set(f"{frame.bot_cc_temp_c:.1f}")
-        self.tiles["mcu_time"].set(f"{frame.mcu_time_s:.1f}")
+        if self.kind == "numbers":
+            values = {
+                "thrust": ("engine_thrust_lbf", ".1f"),
+                "weight": ("nitrous_weight_lbs", ".0f"),
+                "run_pressure": ("run_tank_pressure_psi", ".1f"),
+                "cc_pressure": ("cc_pressure_psi", ".1f"),
+                "top_temp": ("top_cc_temp_f", ".1f"),
+                "bot_temp": ("bot_cc_temp_f", ".1f"),
+                "mcu_time": ("mcu_time_s", ".1f"),
+            }
+            for tile_key, (field_name, format_spec) in values.items():
+                value = getattr(frame, field_name, None)
+                text = format(value, format_spec) if value is not None else "—"
+                self.tiles[tile_key].set(text)
+            return
 
+        state_names = {
+            "sv11_state": {0: "UNKNOWN", 1: "OPEN", 2: "CLOSED", 3: "FAULT"},
+            "sv12_state": {0: "UNKNOWN", 1: "OPEN", 2: "CLOSED", 3: "FAULT"},
+            "sv13_state": {0: "UNKNOWN", 1: "OPEN", 2: "CLOSED", 3: "FAULT"},
+            "ignitor_state": {0: "UNKNOWN", 1: "OPEN", 2: "CLOSED", 3: "FAULT"},
+            "armed_status": {0: "UNKNOWN", 1: "ARMED", 2: "DISARMED", 3: "FAULT"},
+            "routine_sequence": {0: "NONE", 1: "FIRE", 2: "LONG_FILL", 3: "SHORT_FILL", 4: "ROUTINE_4", 5: "ROUTINE_5"},
+        }
+        for key, _, _ in self.STATE_SPECS:
+            value = getattr(frame, key, None)
+            text = state_names[key].get(value, f"UNKNOWN ({value})")
+            self.tiles[key].set(text)
 
 # =====================================================================
 class EventLog(QWidget):

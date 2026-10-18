@@ -158,6 +158,7 @@ class TelemetryPlot(QWidget):
             vlay.addWidget(w)
         vlay.addStretch(1)
         body.addWidget(values_col)
+        values_col.hide()
 
         root.addLayout(body, 1)
 
@@ -278,7 +279,7 @@ class GraphStack(QWidget):
         root.addLayout(self._build_toolbar())
 
         self.engineThrust = TelemetryPlot(
-            "Engine Thrust", "N",
+            "Engine Thrust", "Lbf",
             [("Thrust", PALETTE.cyan)]#, ("placeholder", PALETTE.magenta)],
         )
         self.pressure = TelemetryPlot(
@@ -286,7 +287,7 @@ class GraphStack(QWidget):
             [("Chamber Pressure", PALETTE.amber), ("Run Tank Pressure", PALETTE.green)],
         )
         self.temp = TelemetryPlot(
-            "Temperature", "C",
+            "Temperature", "F",
             [("Top Temp", PALETTE.red), ("Bottom Temp", PALETTE.cyan)],
         )
 
@@ -337,9 +338,9 @@ class GraphStack(QWidget):
     # -----------------------------------------------------------------
     def append(self, frame) -> None:
         t = frame.t_seconds
-        self.engineThrust.append(t, (frame.engine_thrust_n,))
+        self.engineThrust.append(t, (frame.engine_thrust_lbf,))
         self.pressure.append(t, (frame.cc_pressure_psi, frame.run_tank_pressure_psi))
-        self.temp.append(t, (frame. top_cc_temp_c, frame.bot_cc_temp_c))
+        self.temp.append(t, (frame.top_cc_temp_f, frame.bot_cc_temp_f))
 
     def redraw(self) -> None:
         for plot in self.plots:

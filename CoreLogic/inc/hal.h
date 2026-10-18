@@ -4,13 +4,6 @@
 #include "protocol.h"
 #include <stdint.h>
 
-//In the hal.h, functions and variables are defined for use in other scripts, mainly for the hal.c to define them. 
-//There can be functions in the hal.c that are not defined in the hal.h, but those functions can't be used globally like these can. 
-int hal_init(const char *interface_name);
-int hal_read_signal(void);
-int hal_send_signal(uint8_t ground_sv11, uint8_t run_tank_sv12, uint8_t gauge_sv13, uint8_t fire_injector);
-void hal_close(void);
-
 //A decoded version of protocol.dbc is posted here for references in other scripts. 
 struct engine_signal_decoded {
     float engine_thrust;
@@ -20,6 +13,18 @@ struct engine_signal_decoded {
     float top_cc_temp;
     float bot_cc_temp;
     float timer;
+    int sv11_state;
+    int sv12_state;
+    int sv13_state;
+    int ignitor_state;
+    int armed_status;
+    int routine_sequence;
 };
 
+//In the hal.h, functions and variables are defined for use in other scripts, mainly for the hal.c to define them. 
+//There can be functions in the hal.c that are not defined in the hal.h, but those functions can't be used globally like these can. 
+int hal_init(const char *interface_name);
+int hal_read_signal(struct engine_signal_decoded *output);
+int hal_send_signal(uint8_t ground_sv11, uint8_t run_tank_sv12, uint8_t gauge_sv13, uint8_t armed_select, uint8_t routine_select, uint16_t fire_delay_ms, uint8_t load_cell_tare);
+void hal_close(void);
 #endif

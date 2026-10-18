@@ -8,16 +8,18 @@ from enum import IntEnum
 class TelemetryFrame:
     # MCUTimer's physical value from the DBC, in seconds.
     mcu_time_s: float
-    engine_thrust_n: float
+    engine_thrust_lbf: float
     nitrous_weight_lbs: float
     run_tank_pressure_psi: float
     cc_pressure_psi: float
-    top_cc_temp_c: float
-    bot_cc_temp_c: float
+    top_cc_temp_f: float
+    bot_cc_temp_f: float
     sv11_state: int
     sv12_state: int
     sv13_state: int
     ignitor_state: int
+    armed_status: int
+    routine_sequence: int
 
     @property
     def t_seconds(self) -> float:
@@ -46,6 +48,20 @@ class TestPhase(IntEnum):
     def color(self) -> str:
         return _TEST_DISPLAY_COLORS[self]
 
+class RoutineSequence(IntEnum):
+    IDLE = 0
+    FIRE = 1
+    LONGFILL = 2
+    SHORTFILL = 3
+
+    @property
+    def label(self) -> str:
+        return _ROUTINE_SEQUENCE_LABELS[self]
+
+    @property
+    def blurb(self) -> str:
+        return _ROUTINE_SEQUENCE_BLURBS[self]
+
 class OperatorRequest(IntEnum):
     OPEN_SV11 = 1
     OPEN_SV12 = 2
@@ -64,7 +80,6 @@ class OperatorRequest(IntEnum):
     def blurb(self) -> str:
         return _REQUEST_BLURBS[self]
 
-    
 class ObservedState(IntEnum):
     UNKNOWN = 0
     OPENED = 1
@@ -93,6 +108,20 @@ _TEST_DISPLAY_PHASE = {
     TestPhase.ALL_TESTED: "ALL_TESTED",
     TestPhase.AWAITING_PROCEED: "AWAITING_PROCEED"
     }
+
+_ROUTINE_SEQUENCE_LABELS = {
+    RoutineSequence.IDLE: "IDLE",
+    RoutineSequence.FIRE: "FIRE",
+    RoutineSequence.LONGFILL: "LONGFILL",
+    RoutineSequence.SHORTFILL: "SHORTFILL"
+}
+
+_ROUTINE_SEQUENCE_BLURBS = {
+    RoutineSequence.IDLE: "The system is currently idle.",
+    RoutineSequence.FIRE: "The system is currently firing.",
+    RoutineSequence.LONGFILL: "The system is currently performing a long fill.",
+    RoutineSequence.SHORTFILL: "The system is currently performing a short fill."
+}
 
 _OBSERVED_DISPLAY_PHASE = {
     ObservedState.FAULT: "FAULT",
@@ -129,7 +158,6 @@ _OBSERVED_DISPLAY_COLORS = {
     ObservedState.CLOSED: PALETTE.bg_deep,
     ObservedState.UNKNOWN: PALETTE.red
 }
-
 
 _TEST_PHASE_BLURBS = {
     TestPhase.IDLE: "Idle state",
