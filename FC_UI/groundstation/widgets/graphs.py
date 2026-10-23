@@ -12,13 +12,7 @@ from __future__ import annotations
 
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (
-    QHBoxLayout,
-    QLabel,
-    QPushButton,
-    QVBoxLayout,
-    QWidget,
-)
+from PyQt6.QtWidgets import (QHBoxLayout,QLabel,QPushButton,QVBoxLayout,QWidget,)
 
 import pyqtgraph as pg
 

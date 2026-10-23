@@ -23,9 +23,6 @@ cansend vcan0 100##00000000000000000000000000000000000000000000000
 
 You can change any zero after the hastags to get differing numbers for the simulated sensor data.
 
-Note that the thermocouples are going to have their own graph, but theyre both for the combustion chamber, to verify the reaction status. 
-There is currently only 1 thermocouple able to send data. 
-
 Run this to run the GUI in a raw state:
 python -m compileall -q  main.py groundstation
 python main.py
@@ -33,5 +30,12 @@ python main.py
 
 Note that for the protocol.dbc, any changest to that has to be mapped to protocol.c and protocol.h using the following:
 - cantools generate_c_source --database-name protocol protocol.dbc
+- The thermocouples are going to have their own graph, but theyre both for the combustion chamber, to verify the reaction status. 
+There is currently only 1 thermocouple able to send data. 
 
 ---
+
+
+on the groundstation, when connected to "systems RPi" run:
+
+ping 10.42.0.1 [or whatever the current IP address is of the Pi.]

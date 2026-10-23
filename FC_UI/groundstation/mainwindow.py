@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
-    QComboBox, QFrame, QHBoxLayout, QLabel, QMainWindow,
-    QPushButton, QSpinBox, QVBoxLayout, QWidget,
+    QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
+    QLabel, QMainWindow, QPushButton, QRadioButton, QScrollArea, QSpinBox,
+    QToolButton, QVBoxLayout, QWidget,
 )
-from .sources import MockSource, CTelemetrySource
+
+from .sources import CTelemetrySource, MockSource
 from .theme import PALETTE
 from .widgets import EventLog, GraphStack, StatusPanel
 
-ASSETS_DIR = Path(__file__).resolve().parent / "assets"
-LOGO_PATH = ASSETS_DIR / "NRL S2 W&P.png"
+STATE_NAMES = {0: "UNKNOWN", 1: "OPEN", 2: "CLOSED", 3: "FAULT"}
+ARMED_NAMES = {0: "UNKNOWN", 1: "ARMED", 2: "DISARMED", 3: "FAULT"}
+ROUTINE_NAMES = {0: "NONE", 1: "FIRE", 2: "LONG_FILL", 3: "SHORT_FILL",
+                 4: "ROUTINE_4", 5: "ROUTINE_5"}
 
 
 class GroundStation(QMainWindow):
@@ -27,10 +30,16 @@ class GroundStation(QMainWindow):
         self.latest = None
         self.live_fresh = False
 
+        # The DBC says only 0/1; it does not say which bit means OPEN.
+        # Do not enable valve requests until the STM32's interpretation is confirmed.
+        open_value = os.environ.get("GS_VALVE_OPEN_VALUE")
+        self.valve_open_value = int(open_value) if open_value in ("0", "1") else None
+
         central = QWidget()
         layout = QVBoxLayout(central)
         layout.setContentsMargins(8, 8, 8, 8)
-        layout.setSpacing(6)
+        layout.setSpacing(5)
+
         controls = QHBoxLayout()
         self.mode_label = QLabel("SIMULATED DATA — NO HARDWARE CONNECTED")
         controls.addWidget(self.mode_label, 1)
@@ -50,75 +59,109 @@ class GroundStation(QMainWindow):
         self._update_source_label()
 
         main_area = QHBoxLayout()
-        main_area.setSpacing(6)
-        left_column = QVBoxLayout()
-        self.state_status = StatusPanel(kind="states")
-        left_column.addWidget(self.state_status)
-        request_box = QFrame()
-        request_box.setStyleSheet(
-            f"background-color:{PALETTE.panel};border:1px solid {PALETTE.border};"
+        main_area.setSpacing(8)
+        left = QFrame()
+        left.setStyleSheet(
+            f"QFrame {{background-color:{PALETTE.panel}; border:1px solid {PALETTE.border};}}"
         )
-        request_layout = QVBoxLayout(request_box)
-        request_layout.addWidget(QLabel("OPERATOR REQUESTS — NOT ACKNOWLEDGED"))
+        left_layout = QVBoxLayout(left)
+        left_layout.setContentsMargins(9, 7, 9, 7)
+        left_layout.setSpacing(5)
+        left_layout.addWidget(QLabel("ENGINE STATE / OPERATOR REQUESTS"))
 
-        self.routine_selector = QComboBox()
-        for label, value in (("Select routine…", None), ("NONE", 0),
-                             ("FIRE", 1), ("LONG_FILL", 2), ("SHORT_FILL", 3)):
-            self.routine_selector.addItem(label, value)
-        request_layout.addWidget(self.routine_selector)
-        self.request_button = QPushButton("REQUEST ROUTINE")
-        self.request_button.clicked.connect(self._request_routine)
-        request_layout.addWidget(self.request_button)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(7)
+        grid.setVerticalSpacing(3)
+        self.state_labels = {}
+        self.valve_groups = {}
+        valve_names = (("sv11", "SV11 — Ground Tank"),
+                       ("sv12", "SV12 — Release Vent"),
+                       ("sv13", "SV13 — Run Tank"))
+        for i, (key, name) in enumerate(valve_names):
+            title = QLabel(name)
+            state = QLabel("—")
+            state.setStyleSheet(f"color:{PALETTE.text_dim};")
+            self.state_labels[f"{key}_state"] = state
+            grid.addWidget(title, 2 * i, 0)
+            grid.addWidget(state, 2 * i + 1, 0)
 
-        self.valve_selectors = {}
-        for name, label in (("sv11", "SV11"), ("sv12", "SV12"), ("sv13", "SV13")):
-            row = QHBoxLayout()
-            row.addWidget(QLabel(label))
-            selector = QComboBox()
-            selector.addItem("Choose…", None)
-            selector.addItem("0 (request)", 0)
-            selector.addItem("1 (request)", 1)
-            row.addWidget(selector)
-            button = QPushButton("SEND")
-            button.clicked.connect(lambda _checked=False, k=name, cb=selector: self._request_selected(k, cb))
-            row.addWidget(button)
-            request_layout.addLayout(row)
-            self.valve_selectors[name] = (selector, button)
+            group = QButtonGroup(self)
+            for row, text in ((0, "OPEN"), (1, "CLOSE")):
+                button = QRadioButton(text)
+                group.addButton(button, row)  # IDs represent choice, not DBC bits.
+                grid.addWidget(button, 2 * i + row, 1)
+            self.valve_groups[key] = group
+
+        grid.setColumnStretch(0, 1)
+        left_layout.addLayout(grid)
+
+        routine_header = QHBoxLayout()
+        routine_header.addWidget(QLabel("ROUTINE SEQUENCE"))
+        routine_header.addStretch(1)
+        self.state_labels["routine_sequence"] = QLabel("—")
+        routine_header.addWidget(self.state_labels["routine_sequence"])
+        left_layout.addLayout(routine_header)
+
+        self.routine_group = QButtonGroup(self)
+        routines = QGridLayout()
+        for row, col, label, value in ((0, 0, "NONE", 0), (0, 1, "SHORT FILL", 3),
+                                       (1, 0, "LONG FILL", 2), (1, 1, "FIRE", 1)):
+            button = QRadioButton(label)
+            self.routine_group.addButton(button, value)
+            routines.addWidget(button, row, col)
+        left_layout.addLayout(routines)
+
+        other_states = QHBoxLayout()
+        other_states.addWidget(QLabel("IGNITOR:"))
+        self.state_labels["ignitor_state"] = QLabel("—")
+        other_states.addWidget(self.state_labels["ignitor_state"])
+        other_states.addStretch(1)
+        other_states.addWidget(QLabel("ARMED:"))
+        self.state_labels["armed_status"] = QLabel("—")
+        other_states.addWidget(self.state_labels["armed_status"])
+        left_layout.addLayout(other_states)
+
+        self.more_button = QToolButton()
+        self.more_button.setText("MORE REQUESTS: ARMED / DELAY / TARE")
+        self.more_button.setCheckable(True)
+        left_layout.addWidget(self.more_button)
+        self.more_box = QWidget()
+        more = QGridLayout(self.more_box)
+        more.setContentsMargins(0, 0, 0, 0)
         self.armed_selector = QComboBox()
-        for text, value in (("Choose armed request…", None), ("0 (request)", 0),
-                            ("1 (request)", 1)):
-            self.armed_selector.addItem(text, value)
-        request_layout.addWidget(self.armed_selector)
-        self.armed_button = QPushButton("SEND ARMED REQUEST")
-        self.armed_button.clicked.connect(lambda: self._request_selected("armed", self.armed_selector))
-        request_layout.addWidget(self.armed_button)
-
+        self.armed_selector.addItem("No armed request", None)
+        self.armed_selector.addItem("Request bit 0", 0)
+        self.armed_selector.addItem("Request bit 1", 1)
+        more.addWidget(self.armed_selector, 0, 0, 1, 2)
+        self.include_delay = QCheckBox("Include fire delay")
+        more.addWidget(self.include_delay, 1, 0)
         self.delay_spin = QSpinBox()
         self.delay_spin.setRange(1, 65535)
-        self.delay_spin.setSuffix(" ms fire delay")
         self.delay_spin.setValue(5000)
-        request_layout.addWidget(self.delay_spin)
-        self.delay_button = QPushButton("SEND FIRE DELAY")
-        self.delay_button.clicked.connect(lambda: self._request(fire_delay_ms=self.delay_spin.value()))
-        request_layout.addWidget(self.delay_button)
+        self.delay_spin.setSuffix(" ms")
+        more.addWidget(self.delay_spin, 1, 1)
         self.tare_selector = QComboBox()
-        for text, value in (("Choose tare…", None), ("LC1", 1), ("LC2", 2), ("BOTH", 3)):
+        for text, value in (("No tare request", None), ("LC1", 1),
+                            ("LC2", 2), ("BOTH", 3)):
             self.tare_selector.addItem(text, value)
-        request_layout.addWidget(self.tare_selector)
-        self.tare_button = QPushButton("REQUEST TARE")
-        self.tare_button.clicked.connect(lambda: self._request_selected("tare", self.tare_selector))
-        request_layout.addWidget(self.tare_button)
+        more.addWidget(self.tare_selector, 2, 0, 1, 2)
+        self.more_box.setVisible(False)
+        left_layout.addWidget(self.more_box)
+        self.more_button.toggled.connect(self._toggle_more)
+        self.include_delay.toggled.connect(lambda _: self._set_requests_enabled(self._commands_ready()))
 
-        self.command_widgets = [self.routine_selector, self.request_button,
-                                self.armed_selector, self.armed_button,
-                                self.delay_spin, self.delay_button,
-                                self.tare_selector, self.tare_button]
-        for selector, button in self.valve_selectors.values():
-            self.command_widgets.extend((selector, button))
-        self._set_requests_enabled(False)
-        left_column.addWidget(request_box)
-        left_column.addStretch(1)
-        main_area.addLayout(left_column)
+        self.send_button = QPushButton("SEND COMMAND")
+        self.send_button.clicked.connect(self._send_command)
+        left_layout.addWidget(self.send_button)
+        left_layout.addStretch(1)
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        left_scroll.setMinimumWidth(365)
+        left_scroll.setMaximumWidth(425)
+        left_scroll.setWidget(left)
+        main_area.addWidget(left_scroll)
+
         self.graphs = GraphStack()
         main_area.addWidget(self.graphs, 1)
         layout.addLayout(main_area, 1)
@@ -128,26 +171,69 @@ class GroundStation(QMainWindow):
         self.log.setFixedHeight(105)
         layout.addWidget(self.log)
         self.setCentralWidget(central)
+        self._set_requests_enabled(False)
+
         self._ui_timer = QTimer(self)
         self._ui_timer.timeout.connect(self._refresh)
         self._ui_timer.start(50)
 
+    def _toggle_more(self, visible: bool) -> None:
+        if not visible:
+            # Hidden fields must not be sent as surprise commands.
+            self.armed_selector.setCurrentIndex(0)
+            self.include_delay.setChecked(False)
+            self.tare_selector.setCurrentIndex(0)
+        self.more_box.setVisible(visible)
+
+    def _commands_ready(self) -> bool:
+        return (self.live_fresh and isinstance(self.source, CTelemetrySource)
+                and self.source.command_available())
+
     def _set_requests_enabled(self, enabled: bool) -> None:
-        for widget in self.command_widgets:
-            widget.setEnabled(enabled)
+        for group in self.valve_groups.values():
+            for button in group.buttons():
+                button.setEnabled(enabled and self.valve_open_value is not None)
+        for button in self.routine_group.buttons():
+            button.setEnabled(enabled)
+        self.more_button.setEnabled(enabled)
+        self.armed_selector.setEnabled(enabled)
+        self.include_delay.setEnabled(enabled)
+        self.delay_spin.setEnabled(enabled and self.include_delay.isChecked())
+        self.tare_selector.setEnabled(enabled)
+        self.send_button.setEnabled(enabled)
 
-    def _request_selected(self, key: str, selector: QComboBox) -> None:
-        value = selector.currentData()
-        if value is not None:
-            self._request(**{key: value})
+    @staticmethod
+    def _clear_group(group: QButtonGroup) -> None:
+        selected = group.checkedButton()
+        if selected is not None:
+            group.setExclusive(False)
+            selected.setChecked(False)
+            group.setExclusive(True)
 
-    def _request_routine(self) -> None:
-        self._request_selected("routine", self.routine_selector)
-
-    def _request(self, **fields: int) -> None:
-        if (not self.live_fresh or not isinstance(self.source, CTelemetrySource)
-                or not self.source.command_available()):
+    def _send_command(self) -> None:
+        if not self._commands_ready():
             self.log.log("warn", "Request blocked: live Pi telemetry is not fresh")
+            return
+        fields = {}
+        for key, group in self.valve_groups.items():
+            choice = group.checkedId()
+            if choice != -1:
+                if self.valve_open_value is None:
+                    self.log.log("error", "Valve bit mapping is not configured")
+                    return
+                fields[key] = self.valve_open_value if choice == 0 else 1 - self.valve_open_value
+        routine = self.routine_group.checkedId()
+        if routine != -1:
+            fields["routine"] = routine
+        if self.more_box.isVisible():
+            if self.armed_selector.currentData() is not None:
+                fields["armed"] = self.armed_selector.currentData()
+            if self.include_delay.isChecked():
+                fields["fire_delay_ms"] = self.delay_spin.value()
+            if self.tare_selector.currentData() is not None:
+                fields["tare"] = self.tare_selector.currentData()
+        if not fields:
+            self.log.log("warn", "Choose at least one request before sending")
             return
         try:
             queued = self.source.request(**fields)
@@ -156,8 +242,13 @@ class GroundStation(QMainWindow):
             return
         if not queued:
             self.log.log("warn", "Request not queued: connection stale, closed, or busy")
-        else:
-            self.log.log("info", f"Queued request {fields}; not acknowledged by Pi or MCU")
+            return
+        for group in self.valve_groups.values():
+            self._clear_group(group)
+        self._clear_group(self.routine_group)
+        self.armed_selector.setCurrentIndex(0)
+        self.include_delay.setChecked(False)
+        self.tare_selector.setCurrentIndex(0)
 
     def _update_source_label(self) -> None:
         if self.source_selector.currentData() == "live":
@@ -173,9 +264,10 @@ class GroundStation(QMainWindow):
         self.graphs.clear()
         self.latest = None
         self.live_fresh = False
+        self._reset_states()
         self._set_requests_enabled(False)
         if self.source_selector.currentData() == "live":
-            host = os.environ.get("GROUND_STATION_HOST", "127.0.0.1")
+            host = os.environ.get("GROUND_STATION_HOST", "10.42.0.1")
             port = int(os.environ.get("GROUND_STATION_PORT", "5555"))
             self.source = CTelemetrySource(host=host, port=port, parent=self)
         else:
@@ -192,22 +284,18 @@ class GroundStation(QMainWindow):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
 
-
     def _source_finished(self, source) -> None:
         if self.source is source:
             self.stop()
-
-    def _sync_command_gate(self) -> None:
-        if isinstance(self.source, CTelemetrySource) and self.live_fresh:
-            ready = self.source.command_available()
-            self._set_requests_enabled(ready)
-            self.mode_label.setText("LIVE PI — COMMANDS AVAILABLE (NOT ACKNOWLEDGED)" if ready else
-                                    "LIVE PI — TELEMETRY STALE FOR COMMANDS")
 
     def _on_frame(self, frame) -> None:
         self.latest = frame
         self.graphs.append(frame)
         self.numeric_status.note_packet()
+
+    def _reset_states(self) -> None:
+        for label in self.state_labels.values():
+            label.setText("—")
 
     def _on_link(self, connected: bool, detail: str) -> None:
         self.log.log("info" if connected else "warn", detail)
@@ -216,20 +304,25 @@ class GroundStation(QMainWindow):
             self._set_requests_enabled(False)
             self.mode_label.setText("LIVE PI — TELEMETRY RECEIVED" if connected else
                                     "LIVE PI — NO FRESH TELEMETRY")
-            if connected:
-                self._sync_command_gate()
             if not connected:
                 self.latest = None
                 self.numeric_status.reset()
-                self.state_status.reset()
+                self._reset_states()
 
     def _refresh(self) -> None:
-        self._sync_command_gate()
+        if isinstance(self.source, CTelemetrySource) and self.live_fresh:
+            ready = self._commands_ready()
+            self._set_requests_enabled(ready)
+            self.mode_label.setText("LIVE PI — COMMANDS AVAILABLE" if ready else
+                                    "LIVE PI — TELEMETRY STALE FOR COMMANDS")
         if self.latest is None:
             return
         self.graphs.redraw()
         self.numeric_status.update_frame(self.latest)
-        self.state_status.update_frame(self.latest)
+        for key, label in self.state_labels.items():
+            mapping = (ROUTINE_NAMES if key == "routine_sequence" else
+                       ARMED_NAMES if key == "armed_status" else STATE_NAMES)
+            label.setText(mapping.get(getattr(self.latest, key), "UNKNOWN"))
 
     def stop(self) -> None:
         if self.source is None:
@@ -245,7 +338,7 @@ class GroundStation(QMainWindow):
         self._update_source_label()
         self.graphs.clear()
         self.numeric_status.reset()
-        self.state_status.reset()
+        self._reset_states()
 
     def closeEvent(self, event) -> None:
         self._ui_timer.stop()

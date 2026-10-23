@@ -49,7 +49,7 @@ class StatTile(QFrame):
 
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(3)
+        row.setSpacing(1)
         row.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBaseline)
 
         self._value = QLabel("—")
@@ -102,12 +102,12 @@ class StatusPanel(QWidget):
     )
 
     STATE_SPECS = (
-        ("sv11_state", "SV11", ""),
-        ("sv12_state", "SV12", ""),
-        ("sv13_state", "SV13", ""),
+        ("sv11_state", "SV11 - Ground Tank", ""),
+        ("sv12_state", "SV12 - Vent", ""),
+        ("sv13_state", "SV13 - Fill Tank", ""),
         ("ignitor_state", "IGNITOR", ""),
-        ("armed_status", "ARMED", ""),
-        ("routine_sequence", "ROUTINE", ""),
+        ("armed_status", "ARMED?", ""),
+        ("routine_sequence", "CURRENT ROUTINE", ""),
     )
 
     def __init__(self, kind: str = "numbers", parent=None):
@@ -122,8 +122,8 @@ class StatusPanel(QWidget):
         self.tiles: dict[str, StatTile] = {}
 
         grid = QGridLayout(self)
-        grid.setContentsMargins(4, 4, 4, 4)
-        grid.setSpacing(5)
+        grid.setContentsMargins(2, 2, 2, 2)
+        grid.setSpacing(2)
 
         specs = self.STATE_SPECS if kind == "states" else self.NUMERIC_SPECS
 
@@ -138,7 +138,7 @@ class StatusPanel(QWidget):
 
         if kind == "states":
             grid.setRowStretch(len(specs), 1)
-            self.setFixedWidth(180)
+            self.setFixedWidth(100)
         else:
             for column in range(4):
                 grid.setColumnStretch(column, 1)
