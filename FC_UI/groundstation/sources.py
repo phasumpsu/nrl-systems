@@ -48,6 +48,7 @@ class CTelemetrySource(QThread):
     frame = pyqtSignal(object)
     link = pyqtSignal(bool, str)
     event = pyqtSignal(str, str)
+    bridge_status = pyqtSignal(str)  # Pi link health, independent of STM32 telemetry
 
     def __init__(self, host: str, port: int = 5555, parent=None):
         super().__init__(parent)
@@ -57,15 +58,35 @@ class CTelemetrySource(QThread):
         self._pi_telemetry = False
         self._last_pi_frame_at: float | None = None
         self._requests: Queue[dict] = Queue(maxsize=32)
+        self._probes: Queue[None] = Queue(maxsize=1)
+        self._heartbeat_confirmed = False
+        self._last_heartbeat_ack_at: float | None = None
+        self._active_session = False
+        self._next_request_id = 1
+
+    def probe(self) -> bool:
+        """Ask the Pi for a read-only state snapshot; works without the STM32."""
+        if not self._running or not self.isRunning():
+            return False
+        try:
+            self._probes.put_nowait(None)
+        except Full:
+            return False
+        return True
 
     def command_available(self) -> bool:
-        """A conservative local gate; the Pi still makes the final decision."""
-        return (self._running and self.isRunning() and self._fresh and self._pi_telemetry
+        """Pi TCP session is active and responding; NOT permission from the MCU."""
+        return (self._running and self.isRunning() and self._active_session
+                and self._last_heartbeat_ack_at is not None
+                and time.monotonic() - self._last_heartbeat_ack_at < 2.0)
+
+    def mcu_telemetry_available(self) -> bool:
+        return (self._running and self._fresh and self._pi_telemetry
                 and self._last_pi_frame_at is not None
                 and time.monotonic() - self._last_pi_frame_at < 0.4)
 
     def request(self, **fields: int) -> bool:
-        """Queue one validated request; False means there is no fresh link."""
+        """Queue a request for the active Pi; Pi can reject it if the MCU is stale."""
         if not fields or "hb" in fields:
             raise ValueError("Specify command fields, not a heartbeat")
         for key, value in fields.items():
@@ -76,8 +97,11 @@ class CTelemetrySource(QThread):
                 raise ValueError(f"{key} must be an integer in {low}..{high}")
         if not self.command_available():
             return False
+        request = dict(fields)
+        request["request_id"] = self._next_request_id
+        self._next_request_id += 1
         try:
-            self._requests.put_nowait(dict(fields))
+            self._requests.put_nowait(request)
         except Full:
             return False
         return True
@@ -96,11 +120,15 @@ class CTelemetrySource(QThread):
         pending = b""
         try:
             with socket.create_connection((self.host, self.port), timeout=2.0) as sock:
+                self._heartbeat_confirmed = False
+                self._last_heartbeat_ack_at = None
+                self._active_session = False
                 sock.settimeout(0.2)
                 if not self._running:
                     return
-                self.link.emit(False, "Connected to Pi; waiting for engine telemetry")
-                next_hb_at = time.monotonic()
+                self.link.emit(False, "TCP connected; checking Pi bridge (engine telemetry not yet verified)")
+                sock.sendall(b'{"hb":1}\n{"get_state":true}\n')
+                next_hb_at = time.monotonic() + 0.5
 
                 while self._running:
                     now = time.monotonic()
@@ -113,7 +141,15 @@ class CTelemetrySource(QThread):
                         self._discard_requests()
                         self.link.emit(False, "Engine telemetry timed out")
 
-                    # This worker alone writes the socket, so command and heartbeat lines do not interleave.
+                    # Diagnostic probes do not enter the Pi's command parser.
+                    try:
+                        self._probes.get_nowait()
+                    except Empty:
+                        pass
+                    else:
+                        sock.sendall(b'{"get_state":true}\n')
+
+                    # Only this worker writes the socket, so JSON lines cannot interleave.
                     if self.command_available():
                         try:
                             fields = self._requests.get_nowait()
@@ -122,7 +158,7 @@ class CTelemetrySource(QThread):
                         else:
                             if self.command_available():
                                 sock.sendall((json.dumps(fields, separators=(",", ":")) + "\n").encode("utf-8"))
-                                self.event.emit("info", f"Request written to TCP: {fields} (not acknowledged)")
+                                self.event.emit("info", f"Request {fields['request_id']} written to TCP; awaiting Pi response")
                     else:
                         self._discard_requests()
 
@@ -150,6 +186,41 @@ class CTelemetrySource(QThread):
                             self.event.emit("warn", "Telemetry JSON is not an object")
                             continue
                         if values.get("type") == "pi_status":
+                            continue
+                        if values.get("type") == "state_snapshot":
+                            self._active_session = values.get("is_active") is True
+                            if not self._active_session:
+                                self._discard_requests()
+                            self.bridge_status.emit(
+                                f"Pi answered state query; active: {values.get('is_active')}; "
+                                f"STM32 telemetry age: {values.get('mcu_telemetry_age_s')}; "
+                                f"forced safe: {values.get('forced')}; "
+                                f"reason: {values.get('reason', 'unknown')}"
+                            )
+                            continue
+                        if values.get("type") == "promoted":
+                            self._active_session = True
+                            self.probe()  # Refresh an initial snapshot that may predate promotion.
+                            self.bridge_status.emit("Pi promoted this ground-station session to active")
+                            continue
+                        if values.get("type") == "ack":
+                            if values.get("reason") == "heartbeat":
+                                if values.get("status") == "accepted":
+                                    self._last_heartbeat_ack_at = time.monotonic()
+                                    if not self._heartbeat_confirmed:
+                                        self._heartbeat_confirmed = True
+                                        self.event.emit("info", "Pi accepted ground-station heartbeat")
+                            else:
+                                if values.get("reason") == "not_active_session":
+                                    self._active_session = False
+                                    self._discard_requests()
+                                self.event.emit(
+                                    "info" if values.get("status") == "accepted" else "warn",
+                                    f"Pi request {values.get('request_id')}: "
+                                    f"{values.get('status')} ({values.get('reason')})"
+                                )
+                            continue
+                        if "type" in values and values.get("type") != "telemetry":
                             continue
                         try:
                             telemetry = (_decode_pi_frame(values) if "mcu_timer_s" in values else
@@ -189,6 +260,9 @@ class CTelemetrySource(QThread):
             if self._running:
                 self.event.emit("error", f"Telemetry connection failed: {exc}")
         finally:
+            self._heartbeat_confirmed = False
+            self._last_heartbeat_ack_at = None
+            self._active_session = False
             self._fresh = self._pi_telemetry = False
             self._last_pi_frame_at = None
             self._discard_requests()
@@ -196,6 +270,8 @@ class CTelemetrySource(QThread):
 
     def stop(self) -> None:
         self._running = False
+        self._active_session = False
+        self._last_heartbeat_ack_at = None
         self._fresh = self._pi_telemetry = False
         self._last_pi_frame_at = None
         self._discard_requests()

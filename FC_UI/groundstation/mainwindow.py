@@ -5,8 +5,8 @@ import os
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
     QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
-    QLabel, QMainWindow, QPushButton, QRadioButton, QScrollArea, QSpinBox,
-    QToolButton, QVBoxLayout, QWidget,
+    QLabel, QMainWindow, QMessageBox, QPushButton, QRadioButton, QScrollArea,
+    QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
 from .sources import CTelemetrySource, MockSource
@@ -54,6 +54,10 @@ class GroundStation(QMainWindow):
         self.stop_button.setEnabled(False)
         self.stop_button.clicked.connect(self.stop)
         controls.addWidget(self.stop_button)
+        self.probe_button = QPushButton("CHECK PI LINK")
+        self.probe_button.setEnabled(False)
+        self.probe_button.clicked.connect(self._probe_pi)
+        controls.addWidget(self.probe_button)
         layout.addLayout(controls)
         self.source_selector.currentIndexChanged.connect(self._update_source_label)
         self._update_source_label()
@@ -94,6 +98,11 @@ class GroundStation(QMainWindow):
 
         grid.setColumnStretch(0, 1)
         left_layout.addLayout(grid)
+        if self.valve_open_value is None:
+            warning = QLabel("Valve requests locked: confirm GS_VALVE_OPEN_VALUE (0 or 1).")
+            warning.setWordWrap(True)
+            warning.setStyleSheet(f"color:{PALETTE.amber};")
+            left_layout.addWidget(warning)
 
         routine_header = QHBoxLayout()
         routine_header.addWidget(QLabel("ROUTINE SEQUENCE"))
@@ -110,6 +119,10 @@ class GroundStation(QMainWindow):
             self.routine_group.addButton(button, value)
             routines.addWidget(button, row, col)
         left_layout.addLayout(routines)
+        self.full_state = QCheckBox("FULL STATE — required to clear Pi forced-safe latch")
+        self.full_state.setToolTip("Requires explicit choices for all three valves, armed, routine, and fire delay. Never filled from old telemetry.")
+        left_layout.addWidget(self.full_state)
+        self.full_state.toggled.connect(self._full_state_toggled)
 
         other_states = QHBoxLayout()
         other_states.addWidget(QLabel("IGNITOR:"))
@@ -153,6 +166,10 @@ class GroundStation(QMainWindow):
         self.send_button = QPushButton("SEND COMMAND")
         self.send_button.clicked.connect(self._send_command)
         left_layout.addWidget(self.send_button)
+        note = QLabel("Pi ACK means accepted by bridge, NOT delivered to MCU or actuator confirmation. Without STM32, expect REJECTED.")
+        note.setWordWrap(True)
+        note.setStyleSheet(f"color:{PALETTE.text_dim};")
+        left_layout.addWidget(note)
         left_layout.addStretch(1)
         left_scroll = QScrollArea()
         left_scroll.setWidgetResizable(True)
@@ -177,8 +194,15 @@ class GroundStation(QMainWindow):
         self._ui_timer.timeout.connect(self._refresh)
         self._ui_timer.start(50)
 
+    def _full_state_toggled(self, checked: bool) -> None:
+        if checked:
+            self.more_button.setChecked(True)
+            self.include_delay.setChecked(True)
+
     def _toggle_more(self, visible: bool) -> None:
         if not visible:
+            if self.full_state.isChecked():
+                self.full_state.setChecked(False)
             # Hidden fields must not be sent as surprise commands.
             self.armed_selector.setCurrentIndex(0)
             self.include_delay.setChecked(False)
@@ -186,7 +210,9 @@ class GroundStation(QMainWindow):
         self.more_box.setVisible(visible)
 
     def _commands_ready(self) -> bool:
-        return (self.live_fresh and isinstance(self.source, CTelemetrySource)
+        # The Pi link can be tested without STM32 telemetry. The Pi still
+        # rejects all actuator requests while its MCU telemetry is stale.
+        return (isinstance(self.source, CTelemetrySource)
                 and self.source.command_available())
 
     def _set_requests_enabled(self, enabled: bool) -> None:
@@ -200,6 +226,7 @@ class GroundStation(QMainWindow):
         self.include_delay.setEnabled(enabled)
         self.delay_spin.setEnabled(enabled and self.include_delay.isChecked())
         self.tare_selector.setEnabled(enabled)
+        self.full_state.setEnabled(enabled)
         self.send_button.setEnabled(enabled)
 
     @staticmethod
@@ -212,7 +239,7 @@ class GroundStation(QMainWindow):
 
     def _send_command(self) -> None:
         if not self._commands_ready():
-            self.log.log("warn", "Request blocked: live Pi telemetry is not fresh")
+            self.log.log("warn", "Request blocked: no confirmed active Pi session / heartbeat")
             return
         fields = {}
         for key, group in self.valve_groups.items():
@@ -235,6 +262,24 @@ class GroundStation(QMainWindow):
         if not fields:
             self.log.log("warn", "Choose at least one request before sending")
             return
+        required = {"sv11", "sv12", "sv13", "armed", "routine", "fire_delay_ms"}
+        missing = required - fields.keys()
+        if self.full_state.isChecked() and missing:
+            self.log.log("warn", f"FULL STATE requires explicit values for: {', '.join(sorted(missing))}")
+            return
+        # Pi treats a request containing all six keys as FULL STATE even if
+        # the checkbox is off. Never bypass confirmation in that case.
+        if not missing:
+            choice = QMessageBox.warning(
+                self, "Confirm complete state request",
+                f"Send this COMPLETE command state to the Pi?\n\n{fields}\n\n"
+                "This can command physical outputs if an STM32 is attached. "
+                "Pi acceptance is not confirmation of actuation.",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                QMessageBox.StandardButton.No,
+            )
+            if choice != QMessageBox.StandardButton.Yes or not self._commands_ready():
+                return
         try:
             queued = self.source.request(**fields)
         except ValueError as exc:
@@ -243,12 +288,25 @@ class GroundStation(QMainWindow):
         if not queued:
             self.log.log("warn", "Request not queued: connection stale, closed, or busy")
             return
+        self.log.log("info", f"Queued request {fields}; not acknowledged by Pi or MCU")
         for group in self.valve_groups.values():
             self._clear_group(group)
         self._clear_group(self.routine_group)
         self.armed_selector.setCurrentIndex(0)
         self.include_delay.setChecked(False)
         self.tare_selector.setCurrentIndex(0)
+        self.full_state.setChecked(False)
+
+    def _probe_pi(self) -> None:
+        if isinstance(self.source, CTelemetrySource) and self.source.probe():
+            self.log.log("info", "Pi link check sent; waiting for Pi response")
+        else:
+            self.log.log("warn", "Pi link check unavailable")
+
+    def _on_bridge_status(self, detail: str) -> None:
+        self.log.log("info", detail)
+        if not self.live_fresh:
+            self.mode_label.setText("LIVE PI — LINK OK; NO FRESH ENGINE TELEMETRY")
 
     def _update_source_label(self) -> None:
         if self.source_selector.currentData() == "live":
@@ -267,7 +325,7 @@ class GroundStation(QMainWindow):
         self._reset_states()
         self._set_requests_enabled(False)
         if self.source_selector.currentData() == "live":
-            host = os.environ.get("GROUND_STATION_HOST", "10.42.0.1")
+            host = os.environ.get("GROUND_STATION_HOST", "10.34.146.171")
             port = int(os.environ.get("GROUND_STATION_PORT", "5555"))
             self.source = CTelemetrySource(host=host, port=port, parent=self)
         else:
@@ -279,10 +337,15 @@ class GroundStation(QMainWindow):
         source.event.connect(lambda severity, message, s=source:
                              self.log.log(severity, message) if self.source is s else None)
         source.finished.connect(lambda s=source: self._source_finished(s))
+        if isinstance(source, CTelemetrySource):
+            source.bridge_status.connect(
+                lambda detail, s=source: self._on_bridge_status(detail) if self.source is s else None
+            )
         source.start()
         self.source_selector.setEnabled(False)
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(True)
+        self.probe_button.setEnabled(isinstance(source, CTelemetrySource))
 
     def _source_finished(self, source) -> None:
         if self.source is source:
@@ -310,11 +373,15 @@ class GroundStation(QMainWindow):
                 self._reset_states()
 
     def _refresh(self) -> None:
-        if isinstance(self.source, CTelemetrySource) and self.live_fresh:
+        if isinstance(self.source, CTelemetrySource):
             ready = self._commands_ready()
             self._set_requests_enabled(ready)
-            self.mode_label.setText("LIVE PI — COMMANDS AVAILABLE" if ready else
-                                    "LIVE PI — TELEMETRY STALE FOR COMMANDS")
+            if ready:
+                self.mode_label.setText("LIVE PI — REQUEST LINK READY; MCU STATE UNVERIFIED" if
+                                        not self.source.mcu_telemetry_available() else
+                                        "LIVE PI — REQUEST LINK READY; MCU TELEMETRY FRESH")
+            elif self.source.isRunning():
+                self.mode_label.setText("LIVE PI — WAITING FOR ACTIVE SESSION / HEARTBEAT ACK")
         if self.latest is None:
             return
         self.graphs.redraw()
@@ -335,6 +402,7 @@ class GroundStation(QMainWindow):
         self.source_selector.setEnabled(True)
         self.start_button.setEnabled(True)
         self.stop_button.setEnabled(False)
+        self.probe_button.setEnabled(False)
         self._update_source_label()
         self.graphs.clear()
         self.numeric_status.reset()

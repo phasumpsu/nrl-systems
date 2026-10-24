@@ -28,6 +28,7 @@ python -m compileall -q  main.py groundstation
 python main.py
 
 
+
 Note that for the protocol.dbc, any changest to that has to be mapped to protocol.c and protocol.h using the following:
 - cantools generate_c_source --database-name protocol protocol.dbc
 - The thermocouples are going to have their own graph, but theyre both for the combustion chamber, to verify the reaction status. 
