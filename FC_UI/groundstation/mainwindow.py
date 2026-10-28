@@ -4,8 +4,8 @@ import os
 
 from PyQt6.QtCore import QTimer
 from PyQt6.QtWidgets import (
-    QButtonGroup, QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
-    QLabel, QMainWindow, QMessageBox, QPushButton, QRadioButton, QScrollArea,
+    QCheckBox, QComboBox, QFrame, QGridLayout, QHBoxLayout,
+    QLabel, QMainWindow, QMessageBox, QPushButton, QScrollArea,
     QSpinBox, QToolButton, QVBoxLayout, QWidget,
 )
 
@@ -30,8 +30,8 @@ class GroundStation(QMainWindow):
         self.latest = None
         self.live_fresh = False
 
-        # The DBC says only 0/1; it does not say which bit means OPEN.
-        # Do not enable valve requests until the STM32's interpretation is confirmed.
+        # Until the STM32 mapping is confirmed, expose raw DBC bits rather than
+        # guessing which bit opens a valve. Selection works in either case.
         open_value = os.environ.get("GS_VALVE_OPEN_VALUE")
         self.valve_open_value = int(open_value) if open_value in ("0", "1") else None
 
@@ -77,29 +77,31 @@ class GroundStation(QMainWindow):
         grid.setHorizontalSpacing(7)
         grid.setVerticalSpacing(3)
         self.state_labels = {}
-        self.valve_groups = {}
+        self.valve_selectors = {}
         valve_names = (("sv11", "SV11 — Ground Tank"),
                        ("sv12", "SV12 — Release Vent"),
                        ("sv13", "SV13 — Run Tank"))
         for i, (key, name) in enumerate(valve_names):
-            title = QLabel(name)
             state = QLabel("—")
             state.setStyleSheet(f"color:{PALETTE.text_dim};")
             self.state_labels[f"{key}_state"] = state
-            grid.addWidget(title, 2 * i, 0)
+            selector = QComboBox()
+            selector.addItem("No request", None)
+            if self.valve_open_value is None:
+                selector.addItem("REQUEST BIT 0", 0)
+                selector.addItem("REQUEST BIT 1", 1)
+            else:
+                selector.addItem("OPEN", self.valve_open_value)
+                selector.addItem("CLOSE", 1 - self.valve_open_value)
+            self.valve_selectors[key] = selector
+            grid.addWidget(QLabel(name), 2 * i, 0)
             grid.addWidget(state, 2 * i + 1, 0)
-
-            group = QButtonGroup(self)
-            for row, text in ((0, "OPEN"), (1, "CLOSE")):
-                button = QRadioButton(text)
-                group.addButton(button, row)  # IDs represent choice, not DBC bits.
-                grid.addWidget(button, 2 * i + row, 1)
-            self.valve_groups[key] = group
+            grid.addWidget(selector, 2 * i, 1, 2, 1)
 
         grid.setColumnStretch(0, 1)
         left_layout.addLayout(grid)
         if self.valve_open_value is None:
-            warning = QLabel("Valve requests locked: confirm GS_VALVE_OPEN_VALUE (0 or 1).")
+            warning = QLabel("Valve requests use raw bits; OPEN/CLOSE meaning is unverified.")
             warning.setWordWrap(True)
             warning.setStyleSheet(f"color:{PALETTE.amber};")
             left_layout.addWidget(warning)
@@ -111,14 +113,11 @@ class GroundStation(QMainWindow):
         routine_header.addWidget(self.state_labels["routine_sequence"])
         left_layout.addLayout(routine_header)
 
-        self.routine_group = QButtonGroup(self)
-        routines = QGridLayout()
-        for row, col, label, value in ((0, 0, "NONE", 0), (0, 1, "SHORT FILL", 3),
-                                       (1, 0, "LONG FILL", 2), (1, 1, "FIRE", 1)):
-            button = QRadioButton(label)
-            self.routine_group.addButton(button, value)
-            routines.addWidget(button, row, col)
-        left_layout.addLayout(routines)
+        self.routine_selector = QComboBox()
+        for label, value in (("No routine request", None), ("NONE", 0),
+                             ("SHORT FILL", 3), ("LONG FILL", 2), ("FIRE", 1)):
+            self.routine_selector.addItem(label, value)
+        left_layout.addWidget(self.routine_selector)
         self.full_state = QCheckBox("FULL STATE — required to clear Pi forced-safe latch")
         self.full_state.setToolTip("Requires explicit choices for all three valves, armed, routine, and fire delay. Never filled from old telemetry.")
         left_layout.addWidget(self.full_state)
@@ -162,11 +161,12 @@ class GroundStation(QMainWindow):
         left_layout.addWidget(self.more_box)
         self.more_button.toggled.connect(self._toggle_more)
         self.include_delay.toggled.connect(lambda _: self._set_requests_enabled(self._commands_ready()))
+        self.more_button.toggled.connect(lambda _: self._set_requests_enabled(self._commands_ready()))
 
-        self.send_button = QPushButton("SEND COMMAND")
+        self.send_button = QPushButton("SEND REQUEST TO PI")
         self.send_button.clicked.connect(self._send_command)
         left_layout.addWidget(self.send_button)
-        note = QLabel("Pi ACK means accepted by bridge, NOT delivered to MCU or actuator confirmation. Without STM32, expect REJECTED.")
+        note = QLabel("Pi heartbeat ACK enables testing this request path. Without STM32 telemetry the Pi should REJECT actuator requests; acceptance never proves actuation.")
         note.setWordWrap(True)
         note.setStyleSheet(f"color:{PALETTE.text_dim};")
         left_layout.addWidget(note)
@@ -210,49 +210,38 @@ class GroundStation(QMainWindow):
         self.more_box.setVisible(visible)
 
     def _commands_ready(self) -> bool:
-        # The Pi link can be tested without STM32 telemetry. The Pi still
-        # rejects all actuator requests while its MCU telemetry is stale.
+        # A confirmed Pi heartbeat is enough to test delivery; the Pi can
+        # reject the request if this session is inactive or MCU data is stale.
         return (isinstance(self.source, CTelemetrySource)
                 and self.source.command_available())
 
     def _set_requests_enabled(self, enabled: bool) -> None:
-        for group in self.valve_groups.values():
-            for button in group.buttons():
-                button.setEnabled(enabled and self.valve_open_value is not None)
-        for button in self.routine_group.buttons():
-            button.setEnabled(enabled)
-        self.more_button.setEnabled(enabled)
-        self.armed_selector.setEnabled(enabled)
-        self.include_delay.setEnabled(enabled)
-        self.delay_spin.setEnabled(enabled and self.include_delay.isChecked())
-        self.tare_selector.setEnabled(enabled)
-        self.full_state.setEnabled(enabled)
+        # Keep choices selectable while a live Pi link is being established.
+        choosing = isinstance(self.source, CTelemetrySource) and self.source.isRunning()
+        for selector in self.valve_selectors.values():
+            selector.setEnabled(choosing)
+        self.routine_selector.setEnabled(choosing)
+        self.more_button.setEnabled(choosing)
+        self.armed_selector.setEnabled(choosing)
+        self.include_delay.setEnabled(choosing)
+        self.delay_spin.setEnabled(choosing and self.include_delay.isChecked())
+        self.tare_selector.setEnabled(choosing)
+        self.full_state.setEnabled(choosing)
         self.send_button.setEnabled(enabled)
-
-    @staticmethod
-    def _clear_group(group: QButtonGroup) -> None:
-        selected = group.checkedButton()
-        if selected is not None:
-            group.setExclusive(False)
-            selected.setChecked(False)
-            group.setExclusive(True)
 
     def _send_command(self) -> None:
         if not self._commands_ready():
-            self.log.log("warn", "Request blocked: no confirmed active Pi session / heartbeat")
+            self.log.log("warn", "Request blocked: Pi heartbeat not acknowledged or TCP disconnected")
             return
         fields = {}
-        for key, group in self.valve_groups.items():
-            choice = group.checkedId()
-            if choice != -1:
-                if self.valve_open_value is None:
-                    self.log.log("error", "Valve bit mapping is not configured")
-                    return
-                fields[key] = self.valve_open_value if choice == 0 else 1 - self.valve_open_value
-        routine = self.routine_group.checkedId()
-        if routine != -1:
+        for key, selector in self.valve_selectors.items():
+            value = selector.currentData()
+            if value is not None:
+                fields[key] = value
+        routine = self.routine_selector.currentData()
+        if routine is not None:
             fields["routine"] = routine
-        if self.more_box.isVisible():
+        if self.more_button.isChecked():
             if self.armed_selector.currentData() is not None:
                 fields["armed"] = self.armed_selector.currentData()
             if self.include_delay.isChecked():
@@ -289,9 +278,9 @@ class GroundStation(QMainWindow):
             self.log.log("warn", "Request not queued: connection stale, closed, or busy")
             return
         self.log.log("info", f"Queued request {fields}; not acknowledged by Pi or MCU")
-        for group in self.valve_groups.values():
-            self._clear_group(group)
-        self._clear_group(self.routine_group)
+        for selector in self.valve_selectors.values():
+            selector.setCurrentIndex(0)
+        self.routine_selector.setCurrentIndex(0)
         self.armed_selector.setCurrentIndex(0)
         self.include_delay.setChecked(False)
         self.tare_selector.setCurrentIndex(0)
@@ -325,7 +314,7 @@ class GroundStation(QMainWindow):
         self._reset_states()
         self._set_requests_enabled(False)
         if self.source_selector.currentData() == "live":
-            host = os.environ.get("GROUND_STATION_HOST", "10.34.146.171")
+            host = os.environ.get("GROUND_STATION_HOST", "10.42.0.1")
             port = int(os.environ.get("GROUND_STATION_PORT", "5555"))
             self.source = CTelemetrySource(host=host, port=port, parent=self)
         else:
@@ -377,11 +366,14 @@ class GroundStation(QMainWindow):
             ready = self._commands_ready()
             self._set_requests_enabled(ready)
             if ready:
-                self.mode_label.setText("LIVE PI — REQUEST LINK READY; MCU STATE UNVERIFIED" if
-                                        not self.source.mcu_telemetry_available() else
-                                        "LIVE PI — REQUEST LINK READY; MCU TELEMETRY FRESH")
+                if not self.source.mcu_telemetry_available():
+                    self.mode_label.setText("LIVE PI — TRANSPORT TEST ONLY; MCU OFFLINE")
+                elif not self.source.active_session_available():
+                    self.mode_label.setText("LIVE PI — STANDBY; REQUESTS MAY BE REJECTED")
+                else:
+                    self.mode_label.setText("LIVE PI — ACTIVE; MCU TELEMETRY FRESH")
             elif self.source.isRunning():
-                self.mode_label.setText("LIVE PI — WAITING FOR ACTIVE SESSION / HEARTBEAT ACK")
+                self.mode_label.setText("LIVE PI — WAITING FOR HEARTBEAT ACK")
         if self.latest is None:
             return
         self.graphs.redraw()
