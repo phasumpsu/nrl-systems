@@ -88,11 +88,8 @@ class GroundStation(QMainWindow):
             selector = QComboBox()
             selector.addItem("No request", None)
             if self.valve_open_value is None:
-                selector.addItem("REQUEST BIT 0", 0)
-                selector.addItem("REQUEST BIT 1", 1)
-            else:
-                selector.addItem("OPEN", self.valve_open_value)
-                selector.addItem("CLOSE", 1 - self.valve_open_value)
+                selector.addItem("CLOSE", 0)
+                selector.addItem("OPEN", 1)
             self.valve_selectors[key] = selector
             grid.addWidget(QLabel(name), 2 * i, 0)
             grid.addWidget(state, 2 * i + 1, 0)
@@ -101,7 +98,7 @@ class GroundStation(QMainWindow):
         grid.setColumnStretch(0, 1)
         left_layout.addLayout(grid)
         if self.valve_open_value is None:
-            warning = QLabel("Valve requests use raw bits; OPEN/CLOSE meaning is unverified.")
+            warning = QLabel("Valve requests use raw bits")
             warning.setWordWrap(True)
             warning.setStyleSheet(f"color:{PALETTE.amber};")
             left_layout.addWidget(warning)
@@ -142,8 +139,8 @@ class GroundStation(QMainWindow):
         more.setContentsMargins(0, 0, 0, 0)
         self.armed_selector = QComboBox()
         self.armed_selector.addItem("No armed request", None)
-        self.armed_selector.addItem("Request bit 0", 0)
-        self.armed_selector.addItem("Request bit 1", 1)
+        self.armed_selector.addItem("Disarm", 0)
+        self.armed_selector.addItem("Arm", 1)
         more.addWidget(self.armed_selector, 0, 0, 1, 2)
         self.include_delay = QCheckBox("Include fire delay")
         more.addWidget(self.include_delay, 1, 0)
@@ -166,7 +163,7 @@ class GroundStation(QMainWindow):
         self.send_button = QPushButton("SEND REQUEST TO PI")
         self.send_button.clicked.connect(self._send_command)
         left_layout.addWidget(self.send_button)
-        note = QLabel("Pi heartbeat ACK enables testing this request path. Without STM32 telemetry the Pi should REJECT actuator requests; acceptance never proves actuation.")
+        note = QLabel("Pi heartbeat ACK enables testing this request path. Without STM32 telemetry the Pi should REJECT actuator requests")
         note.setWordWrap(True)
         note.setStyleSheet(f"color:{PALETTE.text_dim};")
         left_layout.addWidget(note)
@@ -192,7 +189,7 @@ class GroundStation(QMainWindow):
 
         self._ui_timer = QTimer(self)
         self._ui_timer.timeout.connect(self._refresh)
-        self._ui_timer.start(50)
+        self._ui_timer.start(100)
 
     def _full_state_toggled(self, checked: bool) -> None:
         if checked:
@@ -262,8 +259,7 @@ class GroundStation(QMainWindow):
             choice = QMessageBox.warning(
                 self, "Confirm complete state request",
                 f"Send this COMPLETE command state to the Pi?\n\n{fields}\n\n"
-                "This can command physical outputs if an STM32 is attached. "
-                "Pi acceptance is not confirmation of actuation.",
+                "This can command physical outputs if an STM32 is attached. ",
                 QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
                 QMessageBox.StandardButton.No,
             )

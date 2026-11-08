@@ -278,7 +278,7 @@ class GraphStack(QWidget):
         )
         self.pressure = TelemetryPlot(
             "Pressure", "psi",
-            [("Chamber Pressure", PALETTE.amber), ("Run Tank Pressure", PALETTE.green)],
+            [("Run Tank Pressure", PALETTE.amber), ("Chamber Pressure", PALETTE.green)],
         )
         self.temp = TelemetryPlot(
             "Temperature", "F",
@@ -304,8 +304,7 @@ class GraphStack(QWidget):
 
         label = QLabel("WINDOW")
         label.setStyleSheet(
-            f"color:{PALETTE.text_faint}; font-size:9px; font-weight:700; letter-spacing:1px;"
-        )
+            f"color:{PALETTE.text_faint}; font-size:9px; font-weight:700; letter-spacing:1px;")
         bar.addWidget(label)
 
         self._window_buttons: list[QPushButton] = []

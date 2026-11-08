@@ -330,7 +330,7 @@ class MockSource(QThread):
         while self._running:
             elapsed = time.monotonic() - started
             frame = TelemetryFrame(
-                mcu_time_s=round(elapsed * 2) / 2,
+                mcu_time_s=round(elapsed, 2),
                 engine_thrust_lbf=0.0, nitrous_weight_lbs=0.0,
                 run_tank_pressure_psi=0.0, cc_pressure_psi=0.0,
                 top_cc_temp_f=0.0, bot_cc_temp_f=0.0,
@@ -338,7 +338,7 @@ class MockSource(QThread):
                 ignitor_state=0, armed_status=0, routine_sequence=0,
             )
             self.frame.emit(frame)
-            self.msleep(100)
+            self.msleep(10)
         self.link.emit(False, "Simulation stopped")
 
     def stop(self) -> None:
