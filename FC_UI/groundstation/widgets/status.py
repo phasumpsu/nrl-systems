@@ -93,8 +93,8 @@ class StatusPanel(QWidget):
     NUMERIC_SPECS = (
         ("thrust", "THRUST", "Lbf"),
         ("weight", "NITROUS WEIGHT", "lbs"),
-        ("run_pressure", "RUN TANK", "psi"),
         ("cc_pressure", "CHAMBER", "psi"),
+        ("run_pressure", "RUN TANK", "psi"),
         ("top_temp", "TOP CC TEMP", "°F"),
         ("bot_temp", "BOTTOM CC TEMP", "°F"),
         ("mcu_time", "MCU TIME", "s"),
@@ -143,11 +143,14 @@ class StatusPanel(QWidget):
             for column in range(4):
                 grid.setColumnStretch(column, 1)
 
-    def note_packet(self) -> None:
+    def note_packets(self, count: int = 1) -> None:
+        # Counter only; the tile text is refreshed in update_frame() so we
+        # don't touch a QLabel for every received frame.
         if self.kind == "numbers":
-            self.packet_count += 1
+            self.packet_count += count
             self._last_rx = time.monotonic()
-            self.tiles["packets"].set(str(self.packet_count))
+
+    note_packet = note_packets
 
     def reset(self) -> None:
         self.packet_count = 0
@@ -170,6 +173,7 @@ class StatusPanel(QWidget):
                 value = getattr(frame, field_name, None)
                 text = format(value, format_spec) if value is not None else "—"
                 self.tiles[tile_key].set(text)
+            self.tiles["packets"].set(str(self.packet_count))
             return
 
         state_names = {

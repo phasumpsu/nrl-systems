@@ -46,7 +46,10 @@ def _decode_pi_frame(values: dict) -> TelemetryFrame:
 
 
 class CTelemetrySource(QThread):
-    frame = pyqtSignal(object)
+    # Frames are delivered in batches (list[TelemetryFrame]). One queued
+    # signal per frame floods the GUI event loop at high telemetry rates and
+    # makes the display lag further and further behind ("slow motion").
+    frames = pyqtSignal(object)
     link = pyqtSignal(bool, str)
     event = pyqtSignal(str, str)
     bridge_status = pyqtSignal(str)  # Pi link health, independent of STM32 telemetry
@@ -187,12 +190,13 @@ class CTelemetrySource(QThread):
                         self._discard_requests()
 
                     try:
-                        chunk = sock.recv(4096)
+                        chunk = sock.recv(65536)
                     except socket.timeout:
                         continue
                     if not chunk or not self._running:
                         break
                     pending += chunk
+                    batch: list[TelemetryFrame] = []
                     while b"\n" in pending:
                         raw_line, pending = pending.split(b"\n", 1)
                         raw_line = raw_line.strip()
@@ -280,7 +284,9 @@ class CTelemetrySource(QThread):
                         self._pi_telemetry = "mcu_timer_s" in values
                         self._last_pi_frame_at = last_frame_at if self._pi_telemetry else None
                         self._fresh = True
-                        self.frame.emit(telemetry)
+                        batch.append(telemetry)
+                    if batch:
+                        self.frames.emit(batch)
                         if not connected:
                             connected = True
                             self.link.emit(True, "ENGINE TELEMETRY")
@@ -314,7 +320,7 @@ class CTelemetrySource(QThread):
 
 
 class MockSource(QThread):
-    frame = pyqtSignal(object)
+    frames = pyqtSignal(object)  # list[TelemetryFrame], same contract as CTelemetrySource
     link = pyqtSignal(bool, str)
     event = pyqtSignal(str, str)
 
@@ -337,7 +343,7 @@ class MockSource(QThread):
                 sv11_state=0, sv12_state=0, sv13_state=0,
                 ignitor_state=0, armed_status=0, routine_sequence=0,
             )
-            self.frame.emit(frame)
+            self.frames.emit([frame])
             self.msleep(10)
         self.link.emit(False, "Simulation stopped")
 

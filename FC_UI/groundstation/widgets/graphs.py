@@ -229,12 +229,20 @@ class TelemetryPlot(QWidget):
         if self._buf.n == 0:
             return
         t = self._buf.t
+        t_max = float(t[-1])
+        # While following, hand pyqtgraph only the visible window instead of
+        # the whole 24k-sample buffer for every curve on every redraw.
+        start = 0
+        if self.follow:
+            start = int(np.searchsorted(t, t_max - self.window_s - 1.0))
+            if start >= len(t):  # timer reset / non-monotonic time: draw everything
+                start = 0
+        t_vis = t[start:]
         for i, curve in enumerate(self.curves):
             series = self._buf.series(i)
-            curve.setData(t, series)
+            curve.setData(t_vis, series[start:])
             self._value_widgets[i].set(f"{series[-1]:,.2f}")
         if self.follow:
-            t_max = float(t[-1])
             self.plot.setXRange(max(0.0, t_max - self.window_s), t_max + 0.5, padding=0)
             self.plot.enableAutoRange(axis="y")
 

@@ -56,7 +56,7 @@ cansend vcan0 100##00000000000000000000000000000000000000000000000
 
 You can change any zero after the hastags to get differing numbers for the simulated sensor data.
 
-Run this to run the GUI in a raw state:
+## Run this to run the GUI in a raw state:
 python -m compileall -q  FC_UI/main.py FC_UI/groundstation
 python FC_UI/main.py
 

@@ -316,7 +316,7 @@ class GroundStation(QMainWindow):
         else:
             self.source = MockSource(self)
         source = self.source
-        source.frame.connect(lambda frame, s=source: self._on_frame(frame) if self.source is s else None)
+        source.frames.connect(lambda batch, s=source: self._on_frames(batch) if self.source is s else None)
         source.link.connect(lambda connected, detail, s=source:
                             self._on_link(connected, detail) if self.source is s else None)
         source.event.connect(lambda severity, message, s=source:
@@ -336,10 +336,15 @@ class GroundStation(QMainWindow):
         if self.source is source:
             self.stop()
 
-    def _on_frame(self, frame) -> None:
-        self.latest = frame
-        self.graphs.append(frame)
-        self.numeric_status.note_packet()
+    def _on_frames(self, batch) -> None:
+        # Only buffer data here; all widget/plot updates happen in _refresh
+        # (10 Hz) so the GUI thread never falls behind the telemetry rate.
+        if not batch:
+            return
+        for frame in batch:
+            self.graphs.append(frame)
+        self.latest = batch[-1]
+        self.numeric_status.note_packets(len(batch))
 
     def _reset_states(self) -> None:
         for label in self.state_labels.values():

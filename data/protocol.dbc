@@ -15,19 +15,19 @@ BU_ : ToEngine ToGround
 
 BO_ 256 EngineSignal: 24 ToEngine
     SG_ EngineThrust : 0|16@1+ (0.1,0) [0|1000.0] "lbf" ToGround
-    SG_ NitrousWeight : 16|8@1+ (1,0) [0|250] "lbs" ToGround
-    SG_ RunTankPressure : 24|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
-    SG_ CCPressure : 40|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
-    SG_ TopCCTemp : 56|16@1+ (0.1,0) [0|1300.0] "F" ToGround
-    SG_ BotCCTemp : 72|16@1+ (0.1,0) [0|1300.0] "F" ToGround
-    SG_ MCUTimer : 88|16@1+ (0.5,0) [0|32767.5] "s" ToGround
-    SG_ SV11State : 104|4@1+ (1,0) [0|3] "" ToGround
-    SG_ SV12State : 108|4@1+ (1,0) [0|3] "" ToGround
-    SG_ SV13State : 112|4@1+ (1,0) [0|3] "" ToGround
-    SG_ IgnitorState : 116|4@1+ (1,0) [0|3] "" ToGround
-    SG_ ArmedStatus : 120|4@1+ (1,0) [0|3] "" ToGround
-    SG_ RoutineSequence : 124|4@1+ (1,0) [0|5] "" ToGround
-    SG_ ReservedEngine : 128|64@1+ (1,0) [0|1] "" ToGround
+    SG_ NitrousWeight : 16|16@1+ (1,0) [0|1000.0] "lbs" ToGround
+    SG_ RunTankPressure : 32|16@+ (0.1,0) [0|1000.0] "psi" ToGround
+    SG_ CCPressure : 48|16@1+ (0.1,0) [0|1000.0] "psi" ToGround
+    SG_ TopCCTemp : 64|16@1+ (0.1,0) [0|1300.0] "F" ToGround
+    SG_ BotCCTemp : 80|16@1+ (0.1,0) [0|1300.0] "F" ToGround
+    SG_ MCUTimer : 96|32@1+ (0.01,0) [0|42949672.96] "s" ToGround
+    SG_ SV11State : 128|4@1+ (1,0) [0|3] "" ToGround
+    SG_ SV12State : 132|4@1+ (1,0) [0|3] "" ToGround
+    SG_ SV13State : 136|4@1+ (1,0) [0|3] "" ToGround
+    SG_ IgnitorState : 140|4@1+ (1,0) [0|3] "" ToGround
+    SG_ ArmedStatus : 144|4@1+ (1,0) [0|3] "" ToGround
+    SG_ RoutineSequence : 148|4@1+ (1,0) [0|5] "" ToGround
+    SG_ ReservedEngine : 152|40@1+ (1,0) [0|1] "" ToGround
 
 BO_ 512 GroundStationSignal: 16 ToGround
     SG_ GroundSV11Toggle : 0|4@1+ (1,0) [0|1] "" ToEngine
